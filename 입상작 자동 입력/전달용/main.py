@@ -380,9 +380,67 @@ def upload_files(page, contest_id):
         print("  ✅ 모든 파일 심사결과 파일 여부 ON 확인됨")
 
 
+# ── 심사위원 불참 처리 ────────────────────────────────────
+
+def manage_jury_absence(page, contest_id, judges):
+    """
+    judges 배열에서 status=="불참"인 심사위원을 찾아
+    심사위원 관리 페이지의 '불참 여부 변경하기' 버튼을 클릭한다.
+    """
+    absent = [j for j in judges if j.get("status") == "불참"]
+    if not absent:
+        print("  불참 심사위원 없음")
+        return
+
+    jury_url = f"https://scorer.co.kr/admin/competition/{contest_id}/jury_manage"
+    page.goto(jury_url)
+    page.wait_for_load_state("load", timeout=15000)
+
+    # 왼쪽 패널 테이블: 첫 번째 table 사용
+    # 컬럼 순서: 공개여부(0) 이미지(1) 이름(2) 소속(3) 예비여부(4) 불참여부(5) 추가여부(6)
+    table = page.locator("table").first
+
+    for judge in absent:
+        name = nfc(judge["name"])
+        print(f"  [{judge['name']}] 불참 처리 중...", end="", flush=True)
+
+        rows = table.locator("tbody tr")
+        found = False
+
+        for i in range(rows.count()):
+            row = rows.nth(i)
+            cells = row.locator("td")
+            if cells.count() < 6:
+                continue
+
+            row_name = nfc(cells.nth(2).inner_text().strip())
+            if row_name != name:
+                continue
+
+            found = True
+            absent_cell = cells.nth(5)  # 불참 여부 컬럼
+            cell_text = absent_cell.inner_text().strip()
+
+            # 이미 불참 처리된 경우
+            if "변경하기" not in cell_text:
+                print("  ⏭  이미 불참 처리됨")
+                break
+
+            # 변경하기 버튼 클릭 (dialog는 page.on("dialog") 로 자동 수락)
+            btn = absent_cell.locator("button, a").first
+            btn.click()
+            time.sleep(0.8)  # 팝업 처리 대기
+            page.wait_for_load_state("load", timeout=10000)
+            print("  ✅")
+            break
+
+        if not found:
+            print(f"\n  ⚠️ '{judge['name']}' 을(를) 심사위원 목록에서 찾을 수 없습니다.")
+
+
 # ── 핵심 자동화 로직 ──────────────────────────────────────
 
-def _run_core(contest_id):
+def _run_core(contest_id, judges=None):
     contest_url = f"https://scorer.co.kr/admin/entry/{contest_id}"
     create_url = f"https://scorer.co.kr/admin/entry/create/{contest_id}"
 
@@ -530,19 +588,32 @@ def _run_core(contest_id):
         else:
             print(f"\n  ℹ️  '업로드 파일' 폴더 없음 → 파일 업로드 건너뜁니다.")
 
+        # ── 4단계: 심사위원 불참 처리 ────────────────────────
+        if judges:
+            absent_count = sum(1 for j in judges if j.get("status") == "불참")
+            print(f"\n{'─' * 50}")
+            print(f"  4단계: 심사위원 불참 처리 (불참 {absent_count}명)")
+            print(f"{'─' * 50}")
+            manage_jury_absence(page, contest_id, judges)
+        else:
+            print(f"\n  ℹ️  심사위원 데이터 없음 → 불참 처리 건너뜁니다.")
+
         context.storage_state(path=str(AUTH_STATE))
         browser.close()
 
+    absent_done = sum(1 for j in (judges or []) if j.get("status") == "불참")
     print(f"\n{'=' * 50}")
     print(f"  완료!")
     print(f"  입상작 등록: {len(created)}/{len(entries)}개")
     print(f"  건축가 관리: {arch_success}/{len(created)}개")
+    if judges:
+        print(f"  심사위원 불참: {absent_done}명 처리")
     print(f"{'=' * 50}")
 
 
 # ── HTTP 서버 ─────────────────────────────────────────────
 
-def run_automation(competition_id, awards_txt, images=None, upload_files=None):
+def run_automation(competition_id, awards_txt, images=None, upload_files=None, judges=None):
     """공모 결과 정리도구에서 호출: txt·이미지·파일 저장 후 자동입력 실행"""
     try:
         # 수상작목록.txt 저장
@@ -566,8 +637,13 @@ def run_automation(competition_id, awards_txt, images=None, upload_files=None):
                     f.write(base64.b64decode(uf["data"]))
             print(f"✅ 업로드 파일 {len(upload_files)}개 저장 완료")
 
+        # 심사위원 정보 안내
+        if judges:
+            absent = [j["name"] for j in judges if j.get("status") == "불참"]
+            print(f"✅ 심사위원 {len(judges)}명 수신 (불참: {len(absent)}명)")
+
         print(f"\n▶ 자동입력 시작 — 공모전 ID: {competition_id}")
-        _run_core(str(competition_id))
+        _run_core(str(competition_id), judges=judges)
     finally:
         _done_event.set()
 
@@ -595,6 +671,7 @@ class Handler(BaseHTTPRequestHandler):
                 kwargs={
                     "images": data.get("images", []),
                     "upload_files": data.get("upload_files", []),
+                    "judges": data.get("judges", []) or None,
                 },
                 daemon=True,
             ).start()
