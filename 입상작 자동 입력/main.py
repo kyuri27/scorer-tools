@@ -13,6 +13,7 @@ from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeo
 
 BASE_DIR = Path(__file__).parent
 IMAGE_DIR = BASE_DIR / "입상작 이미지"
+UPLOAD_DIR = BASE_DIR / "업로드 파일"
 AUTH_STATE = BASE_DIR / "auth_state.json"
 
 _done_event = threading.Event()
@@ -139,19 +140,70 @@ def create_entry(page, create_url, entry_name, img_path):
     time.sleep(0.2)
 
 
-def get_existing_entry_names(page, contest_url):
+def get_existing_entry_names(page, contest_url, entry_names=None):
+    """
+    등록된 입상작명 목록을 반환한다.
+    entry_names: 입력할 예정인 항목명 리스트 (교차 검증용)
+    """
     page.goto(contest_url)
     page.wait_for_load_state("networkidle", timeout=15000)
+
+    # ── DataTables 전체 표시로 전환 ─────────────────────────
+    try:
+        length_sel = page.locator("select[name$='_length']").first
+        length_sel.select_option("-1")
+        page.wait_for_load_state("networkidle", timeout=8000)
+    except Exception:
+        pass  # 전환 실패해도 계속 진행
+
     existing = set()
-    rows = page.locator("table tbody tr")
-    for i in range(rows.count()):
-        cells = rows.nth(i).locator("td")
-        if cells.count() >= 4:
-            name = nfc(cells.nth(3).inner_text().strip())
-            if name:
+
+    # ── JS로 DOM 내 모든 행 수집 (숨겨진 행 포함) ───────────
+    try:
+        # 4번째 td(인덱스 3) 기준으로 수집
+        candidates = page.evaluate("""
+            () => {
+                const rows = document.querySelectorAll('table tbody tr');
+                return Array.from(rows).map(r => {
+                    const cells = r.querySelectorAll('td');
+                    if (cells.length < 4) return '';
+                    return cells[3].innerText.trim();
+                });
+            }
+        """)
+        for name in candidates:
+            name = nfc(name)
+            if name and not name.isdigit():
                 existing.add(name)
+    except Exception as e:
+        print(f"\n  [경고] JS 수집 실패({e}), locator 방식으로 재시도")
+        rows = page.locator("table tbody tr")
+        for i in range(rows.count()):
+            cells = rows.nth(i).locator("td")
+            if cells.count() >= 4:
+                name = nfc(cells.nth(3).inner_text().strip())
+                if name and not name.isdigit():
+                    existing.add(name)
+
+    # ── 교차 검증: entry_names 기준으로 페이지 텍스트 재확인 ─
+    if entry_names:
+        page_text = nfc(page.content())
+        for en in entry_names:
+            if nfc(en) in page_text and nfc(en) not in existing:
+                print(f"  [보완] 페이지 텍스트에서 '{en}' 발견 → 기존 항목으로 추가")
+                existing.add(nfc(en))
+
+    # ── 디버그 출력 ─────────────────────────────────────────
+    all_rows = page.locator("table tbody tr")
+    row_count = all_rows.count()
+    if row_count > 0:
+        first_cells = all_rows.first.locator("td")
+        fc = first_cells.count()
+        debug = [nfc(first_cells.nth(j).inner_text().strip()) for j in range(min(fc, 6))]
+        print(f"\n  [디버그] 테이블 행 {row_count}개, 첫 행 셀({fc}개): {debug}")
+
     if existing:
-        print(f"\n  감지된 기존 항목: {', '.join(existing)}")
+        print(f"  기존 항목 {len(existing)}개: {', '.join(sorted(existing))}")
     return existing
 
 
@@ -225,6 +277,33 @@ def select_architect(page, search_name, extra_info, original_name=""):
     pause_for_user()
 
 
+# ── 파일 업로드 ──────────────────────────────────────────
+
+def upload_files(page, contest_id):
+    files = [str(UPLOAD_DIR / f) for f in os.listdir(UPLOAD_DIR)
+             if not nfc(f).startswith(".")]
+    if not files:
+        print("  ⚠️ '업로드 파일' 폴더가 비어있습니다. 건너뜁니다.")
+        return
+
+    file_manage_url = f"https://scorer.co.kr/admin/file_manage/{contest_id}"
+    page.goto(file_manage_url)
+    page.wait_for_load_state("load", timeout=15000)
+
+    file_input = page.locator("input[type='file']").first
+    file_input.set_input_files(files)
+    time.sleep(0.5)
+
+    save_btn = page.get_by_role("button", name="저장하기")
+    save_btn.wait_for(state="visible", timeout=5000)
+    save_btn.click()
+    page.wait_for_load_state("load", timeout=15000)
+
+    print(f"  ✅ {len(files)}개 파일 업로드 완료")
+    for f in files:
+        print(f"     - {Path(f).name}")
+
+
 # ── 핵심 자동화 로직 ──────────────────────────────────────
 
 def _run_core(contest_id):
@@ -269,12 +348,13 @@ def _run_core(contest_id):
         print(f"  1단계: 입상작 등록 ({len(entries)}개)")
         print(f"{'─' * 50}")
 
-        print("기존 등록 항목 확인 중...", end="", flush=True)
-        existing_entries = get_existing_entry_names(page, contest_url)
+        print("기존 등록 항목 확인 중...")
+        entry_name_list = [e[0] for e in entries]
+        existing_entries = get_existing_entry_names(page, contest_url, entry_names=entry_name_list)
         if existing_entries:
-            print(f"  이미 등록된 {len(existing_entries)}개 발견 → 스킵")
+            print(f"  ↳ 이미 등록된 {len(existing_entries)}개 발견 → 스킵")
         else:
-            print("  없음")
+            print("  ↳ 없음")
 
         created = []
         for i, (entry_name, architect_name, extra_info) in enumerate(entries, 1):
@@ -365,6 +445,15 @@ def _run_core(contest_id):
                 if action == "skip":
                     break
 
+        # ── 3단계: 파일 업로드 ───────────────────────────────
+        if UPLOAD_DIR.exists():
+            print(f"\n{'─' * 50}")
+            print(f"  3단계: 파일 업로드")
+            print(f"{'─' * 50}")
+            upload_files(page, contest_id)
+        else:
+            print(f"\n  ℹ️  '업로드 파일' 폴더 없음 → 파일 업로드 건너뜁니다.")
+
         context.storage_state(path=str(AUTH_STATE))
         browser.close()
 
@@ -377,8 +466,8 @@ def _run_core(contest_id):
 
 # ── HTTP 서버 ─────────────────────────────────────────────
 
-def run_automation(competition_id, awards_txt, images=None):
-    """공모 결과 정리도구에서 호출: txt·이미지 저장 후 자동입력 실행"""
+def run_automation(competition_id, awards_txt, images=None, upload_files=None):
+    """공모 결과 정리도구에서 호출: txt·이미지·파일 저장 후 자동입력 실행"""
     try:
         # 수상작목록.txt 저장
         awards_txt_path = BASE_DIR / "수상작목록.txt"
@@ -389,10 +478,17 @@ def run_automation(competition_id, awards_txt, images=None):
         if images:
             IMAGE_DIR.mkdir(exist_ok=True)
             for img in images:
-                img_path = IMAGE_DIR / img["filename"]
-                with open(img_path, "wb") as f:
+                with open(IMAGE_DIR / img["filename"], "wb") as f:
                     f.write(base64.b64decode(img["data"]))
             print(f"✅ 이미지 {len(images)}장 저장 완료")
+
+        # 업로드 파일 저장
+        if upload_files:
+            UPLOAD_DIR.mkdir(exist_ok=True)
+            for uf in upload_files:
+                with open(UPLOAD_DIR / uf["filename"], "wb") as f:
+                    f.write(base64.b64decode(uf["data"]))
+            print(f"✅ 업로드 파일 {len(upload_files)}개 저장 완료")
 
         print(f"\n▶ 자동입력 시작 — 공모전 ID: {competition_id}")
         _run_core(str(competition_id))
@@ -420,7 +516,10 @@ class Handler(BaseHTTPRequestHandler):
             threading.Thread(
                 target=run_automation,
                 args=(str(data["competition_id"]), data["awards_txt"]),
-                kwargs={"images": data.get("images", [])},
+                kwargs={
+                    "images": data.get("images", []),
+                    "upload_files": data.get("upload_files", []),
+                },
                 daemon=True,
             ).start()
 
@@ -438,7 +537,7 @@ def run():
     server = HTTPServer(("localhost", 8765), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
 
-    print("\n공모 결과 정리도구에서 '🚀 입상작 입력하기'를 누르시거나")
+    print("\n공모 결과 정리도구에서 '🚀 공모 결과 입력하기'를 누르시거나")
     print("바로 시작하려면 's'를 입력하세요.")
     print("> ", end="", flush=True)
 
