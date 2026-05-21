@@ -1,0 +1,81 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
+  width: 360px; min-height: 200px;
+  background: #f5f6f8; color: #1a1a1a; font-size: 13px;
+}
+.header {
+  background: #2563eb; color: white; padding: 14px 16px;
+}
+.header h1 { font-size: 15px; font-weight: 600; }
+.header p { font-size: 11px; opacity: 0.8; margin-top: 2px; }
+.body { padding: 14px; }
+
+button {
+  width: 100%; padding: 10px; background: #2563eb; color: white;
+  border: none; border-radius: 6px; cursor: pointer; font-size: 14px;
+  font-weight: 500; font-family: inherit;
+}
+button:hover { background: #1d4ed8; }
+button:disabled { background: #d1d5db; cursor: not-allowed; }
+button.green { background: #10b981; }
+button.green:hover { background: #059669; }
+
+.status {
+  margin-top: 10px; padding: 8px 10px; border-radius: 6px;
+  font-size: 12px; line-height: 1.5;
+}
+.status.error { background: #fee2e2; color: #991b1b; }
+.status.success { background: #dcfce7; color: #166534; }
+
+.result-section { margin-top: 12px; }
+.result-section h3 {
+  font-size: 12px; font-weight: 600; color: #374151;
+  margin-bottom: 6px; padding-bottom: 4px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.field { margin-bottom: 5px; }
+.field .key { color: #6b7280; font-size: 11px; }
+.field .val { font-weight: 500; font-size: 12px; word-break: break-all; }
+
+.judge-item {
+  background: white; padding: 6px 8px; border-radius: 4px;
+  margin-bottom: 4px; border: 1px solid #e5e7eb; font-size: 11px;
+}
+.judge-item .name { font-weight: 600; }
+.judge-item .sub { color: #6b7280; }
+
+.pill {
+  display: inline-block; padding: 1px 6px; border-radius: 8px;
+  font-size: 10px; font-weight: 500; margin-left: 4px;
+}
+.pill-external { background: #dbeafe; color: #1e40af; }
+.pill-reserve  { background: #fef3c7; color: #92400e; }
+
+.not-seumter { padding: 20px; text-align: center; color: #6b7280; }
+.not-seumter .icon { font-size: 32px; margin-bottom: 8px; }
+
+.spinner {
+  display: inline-block; width: 12px; height: 12px;
+  border: 2px solid #93c5fd; border-top-color: #2563eb;
+  border-radius: 50%; animation: spin 0.8s linear infinite;
+  vertical-align: middle; margin-right: 4px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.actions { display: flex; gap: 6px; margin-top: 8px; }
+.actions button { font-size: 12px; padding: 7px; }
+
+.award-item {
+  display: flex; gap: 8px; align-items: flex-start;
+  background: white; padding: 8px; border-radius: 6px;
+  border: 1px solid #e5e7eb; margin-bottom: 6px;
+}
+.award-thumb {
+  width: 72px; height: 54px; object-fit: cover;
+  border-radius: 4px; flex-shrink: 0;
+}
+.award-info { flex: 1; }
+.award-type { font-weight: 600; font-size: 12px; color: #2563eb; }
+.award-office { font-size: 12px; margin-top: 2px; }
+.award-designer { font-size: 11px; color: #6b7280; margin-top: 2px; }

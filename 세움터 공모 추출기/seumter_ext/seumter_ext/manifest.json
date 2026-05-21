@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "세움터 공모 정보 추출기",
+  "version": "1.1",
+  "description": "세움터 공모 상세 페이지에서 공모 정보를 자동 추출합니다.",
+  "permissions": ["activeTab", "scripting", "clipboardWrite", "storage", "downloads", "debugger"],
+  "host_permissions": ["*://*.eais.go.kr/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon.png",
+      "48": "icon.png",
+      "128": "icon.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://eais.go.kr/*"],
+      "js": ["content.js"]
+    }
+  ],
+  "icons": {
+    "16": "icon.png",
+    "48": "icon.png",
+    "128": "icon.png"
+  }
+}
