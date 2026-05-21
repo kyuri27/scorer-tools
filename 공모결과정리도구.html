@@ -652,7 +652,6 @@ function resetAll() {
   const compIdEl = document.getElementById('competitionIdInput');
   if (compIdEl) compIdEl.value = '';
   _awardsTxtHandle = null;
-  _inputScriptDir = null;
 
   // 맨 위로 스크롤
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1286,11 +1285,7 @@ function renderSummary(s) {
       html += `<button id="imgZipBtn" onclick="downloadAwardImagesZip()" style="margin-top:4px; background:#10b981; padding:8px 16px; font-size:13px;">📦 수상작 이미지 ZIP 다운로드</button>`;
     }
     html += `<button onclick="downloadAwardsTxt()" style="margin-top:4px; margin-left:6px; background:#6366f1; padding:8px 16px; font-size:13px;">📄 수상작 목록 텍스트 다운로드</button>`;
-    html += `<div style="display:inline-flex; flex-direction:column; gap:4px; margin-top:4px; margin-left:6px; vertical-align:top;">
-      <button onclick="runAwardInput()" style="background:#0ea5e9; padding:8px 16px; font-size:13px; font-weight:700;">🚀 입상작 입력하기</button>
-      <button onclick="changeInputDir()" style="background:#94a3b8; padding:5px 10px; font-size:11px; color:white; border:none; border-radius:6px; cursor:pointer;">📁 폴더 변경</button>
-      <div id="inputDirName" style="font-size:10px; color:#64748b; text-align:center; max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></div>
-    </div>`;
+    html += `<button onclick="runAwardInput()" style="margin-top:4px; margin-left:6px; background:#0ea5e9; padding:8px 16px; font-size:13px; font-weight:700;">🚀 입상작 입력하기</button>`;
   }
 
   document.getElementById('summaryArea').innerHTML = html;
@@ -1352,49 +1347,8 @@ async function downloadAwardsTxt() {
   URL.revokeObjectURL(url);
 }
 
-// ───── 입상작 자동 입력 연동 ─────
-let _inputScriptDir = null; // Python 스크립트 폴더 핸들
-
-// IndexedDB에 폴더 핸들 저장/불러오기 (브라우저 재시작 후에도 유지)
-function _idbRequest(mode, fn) {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open('awardInputDB', 1);
-    req.onupgradeneeded = e => e.target.result.createObjectStore('handles');
-    req.onsuccess = e => { try { fn(e.target.result, resolve, reject); } catch(err) { reject(err); } };
-    req.onerror = () => reject(req.error);
-  });
-}
-async function _saveInputDir(handle) {
-  await _idbRequest('readwrite', (db, resolve, reject) => {
-    const tx = db.transaction('handles', 'readwrite');
-    tx.objectStore('handles').put(handle, 'inputDir');
-    tx.oncomplete = resolve; tx.onerror = reject;
-  });
-}
-async function _loadInputDir() {
-  return _idbRequest('readonly', (db, resolve) => {
-    const tx = db.transaction('handles', 'readonly');
-    const r = tx.objectStore('handles').get('inputDir');
-    r.onsuccess = () => resolve(r.result || null);
-    r.onerror = () => resolve(null);
-  }).catch(() => null);
-}
-
-function _updateInputDirDisplay() {
-  const el = document.getElementById('inputDirName');
-  if (!el) return;
-  el.textContent = _inputScriptDir ? '📂 ' + _inputScriptDir.name : '';
-}
-
-// 페이지 로드 시 저장된 폴더 복원
-(async () => {
-  _inputScriptDir = await _loadInputDir();
-  if (_inputScriptDir) {
-    const perm = await _inputScriptDir.queryPermission({ mode: 'readwrite' }).catch(() => 'prompt');
-    if (perm === 'denied') _inputScriptDir = null;
-  }
-  _updateInputDirDisplay();
-})();
+// ───── 입상작 자동 입력 연동 (로컬 HTTP 서버 방식) ─────
+const AWARD_INPUT_PORT = 8765;
 
 function buildAwardsTxtContent(data) {
   const typeCounts = {};
@@ -1412,81 +1366,79 @@ function buildAwardsTxtContent(data) {
   }).join('\n');
 }
 
+// 수상작 라벨 생성 (이미지 파일명용) — award 객체 하나 받아서 라벨 문자열 반환
+function buildAwardLabel(award, typeCounts) {
+  const raw = award.awardTypePdf || award.awardTypeSeumter || award.awardType || '';
+  const t = raw.replace(/\s+/g, '');
+  const showRank = typeCounts[raw] > 1;
+  const rankSuffix = showRank ? String(award.pdfRank || '') : '';
+  return award.num ? `${t}${rankSuffix}_${award.num}` : `${t}${rankSuffix}`;
+}
+
 async function runAwardInput() {
   const data = window._currentData;
   if (!data || !data.awards || data.awards.length === 0) {
     alert('먼저 분석을 완료해주세요.'); return;
   }
-
   const competitionId = document.getElementById('competitionIdInput')?.value?.trim();
   if (!competitionId) {
     alert('공모전 ID를 먼저 입력해주세요.'); return;
   }
 
-  if (!window.showDirectoryPicker) {
-    alert('이 브라우저는 폴더 직접 저장을 지원하지 않습니다.\n수상작목록.txt를 따로 다운로드하고 ID는 직접 입력해주세요.');
-    return;
-  }
+  // PDF 타입별 카운트 (라벨 생성용)
+  const typeCounts = {};
+  data.awards.forEach(a => {
+    const t = a.awardTypePdf || a.awardTypeSeumter || a.awardType || '';
+    typeCounts[t] = (typeCounts[t] || 0) + 1;
+  });
 
-  // 처음 실행 시 (또는 핸들 없을 때) Python 스크립트 폴더 선택
-  if (!_inputScriptDir) {
-    try {
-      _inputScriptDir = await window.showDirectoryPicker({
-        id: 'award-input-script-dir',
-        mode: 'readwrite',
-        startIn: 'desktop',
-      });
-      await _saveInputDir(_inputScriptDir); // IndexedDB에 저장
-      _updateInputDirDisplay();
-    } catch (e) {
-      if (e.name === 'AbortError') return;
-      alert('폴더 선택 오류: ' + e.message); return;
+  // 이미지 수집 (세움터에서 가져온 이미지 — imgBase64 또는 imgSrc)
+  const images = [];
+  for (const a of data.awards) {
+    let base64 = null, mime = 'image/jpeg';
+
+    if (a.imgBase64) {
+      base64 = a.imgBase64;
+      mime = a.imgMime || 'image/jpeg';
+    } else if (a.imgSrc) {
+      try {
+        const r = await fetch(a.imgSrc);
+        const buf = await r.arrayBuffer();
+        const bytes = new Uint8Array(buf);
+        let bin = '';
+        bytes.forEach(b => bin += String.fromCharCode(b));
+        base64 = btoa(bin);
+        mime = r.headers.get('content-type') || 'image/jpeg';
+      } catch (_) { /* 이미지 fetch 실패 시 건너뜀 */ }
+    }
+
+    if (base64) {
+      const label = buildAwardLabel(a, typeCounts);
+      const office = (a.office || '').replace(/[\\/:*?"<>|]/g, '').trim();
+      const ext = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg';
+      const filename = office ? `${label}_${office}.${ext}` : `${label}.${ext}`;
+      images.push({ filename, data: base64, mime });
     }
   }
 
   try {
-    // 쓰기 권한 확인 (Chrome은 선택 후 별도 확인이 필요할 수 있음)
-    const perm = await _inputScriptDir.requestPermission({ mode: 'readwrite' });
-    if (perm !== 'granted') {
-      _inputScriptDir = null;
-      alert('폴더 쓰기 권한이 거부됐습니다. 다시 시도해주세요.');
-      return;
-    }
-
-    // 수상작목록.txt 저장
-    const txtContent = '﻿' + buildAwardsTxtContent(data);
-    const txtHandle = await _inputScriptDir.getFileHandle('수상작목록.txt', { create: true });
-    const txtWritable = await txtHandle.createWritable();
-    await txtWritable.write(txtContent);
-    await txtWritable.close();
-
-    // config.json 저장 (Python 스크립트가 읽어서 ID 자동 사용)
-    const cfgContent = JSON.stringify({ competition_id: competitionId }, null, 2);
-    const cfgHandle = await _inputScriptDir.getFileHandle('config.json', { create: true });
-    const cfgWritable = await cfgHandle.createWritable();
-    await cfgWritable.write(cfgContent);
-    await cfgWritable.close();
-
-    alert(`✅ 저장 완료!\n\n• 수상작목록.txt\n• config.json (공모전 ID: ${competitionId})\n\n이제 입상작자동입력.command를 실행하세요.`);
-  } catch (e) {
-    _inputScriptDir = null;
-    alert('저장 실패: ' + e.message + '\n\n다시 버튼을 눌러 폴더를 다시 선택해주세요.');
-  }
-}
-
-async function changeInputDir() {
-  try {
-    const newDir = await window.showDirectoryPicker({
-      id: 'award-input-script-dir',
-      mode: 'readwrite',
-      startIn: 'desktop',
+    const resp = await fetch(`http://localhost:${AWARD_INPUT_PORT}/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        competition_id: competitionId,
+        awards_txt: buildAwardsTxtContent(data),
+        images,  // 세움터 이미지 포함
+      }),
     });
-    _inputScriptDir = newDir;
-    await _saveInputDir(_inputScriptDir);
-    _updateInputDirDisplay();
-    alert(`📂 폴더가 변경됐습니다: ${_inputScriptDir.name}`);
+    if (resp.ok) {
+      const imgCount = images.length;
+      alert(`✅ 전송 완료! 입상작 자동입력이 시작됩니다.\n공모전 ID: ${competitionId}${imgCount > 0 ? `\n이미지: ${imgCount}장` : ''}`);
+    } else {
+      alert(`서버 오류 (${resp.status}): ${await resp.text()}`);
+    }
   } catch (e) {
-    if (e.name !== 'AbortError') alert('폴더 변경 오류: ' + e.message);
+    alert('입상작 자동입력 프로그램이 실행 중이지 않습니다.\n먼저 맥_실행.command를 실행한 뒤 다시 눌러주세요.');
   }
 }
 
