@@ -266,9 +266,10 @@
     <div id="downloadArea"></div>
   </div>
 
-  <!-- 다시하기 -->
+  <!-- 공모 결과 입력하기 + 다시하기 -->
   <div id="resetBar" style="display:none; text-align:center; padding:24px 0 8px;">
-    <button onclick="resetAll()" style="background:#6b7280; color:white; padding:12px 36px; font-size:15px; border-radius:8px; border:none; cursor:pointer; font-weight:600; letter-spacing:0.02em;">🔄 다시하기</button>
+    <button onclick="runAwardInput()" style="background:#0ea5e9; color:white; padding:14px 40px; font-size:16px; border-radius:8px; border:none; cursor:pointer; font-weight:700; margin-right:12px;">🚀 공모 결과 입력하기</button>
+    <button onclick="resetAll()" style="background:#6b7280; color:white; padding:14px 36px; font-size:15px; border-radius:8px; border:none; cursor:pointer; font-weight:600; letter-spacing:0.02em;">🔄 다시하기</button>
   </div>
 </div>
 
@@ -652,6 +653,8 @@ function resetAll() {
   const compIdEl = document.getElementById('competitionIdInput');
   if (compIdEl) compIdEl.value = '';
   _awardsTxtHandle = null;
+  window._judgeStatusOverrides = {};
+  window._judgesData = [];
 
   // 맨 위로 스크롤
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1185,6 +1188,28 @@ function cleanCompetitionName(raw) {
   return s;
 }
 
+// ───── 심사위원 상태 토글 ─────
+function judgeStatusPill(status) {
+  if (status === '위원장') return `<span class="pill pill-chair">참석 (위원장)</span>`;
+  if (status === '불참')   return `<span class="pill pill-absent">불참</span>`;
+  return `<span class="pill pill-attended">참석</span>`;
+}
+
+function toggleJudgeStatus(name, idx) {
+  if (!window._judgeStatusOverrides) window._judgeStatusOverrides = {};
+  const judge = (window._judgesData || []).find(j => j.name === name);
+  const original = judge ? judge.status : '참석';
+  const current  = window._judgeStatusOverrides[name] ?? original;
+
+  // 참석/위원장 ↔ 불참 토글 (위원장 직위는 유지)
+  const next = (current === '불참') ? original : '불참';
+  window._judgeStatusOverrides[name] = next;
+
+  // 버튼은 그대로 두고 pill 스팬만 교체
+  const pill = document.getElementById(`judge-pill-${idx}`);
+  if (pill) pill.outerHTML = `<span id="judge-pill-${idx}">${judgeStatusPill(next)}</span>`;
+}
+
 // ───── 결과 렌더링 ─────
 function renderSummary(s) {
   const rawName = s.buildType ? `${s.competitionName}(${s.buildType})` : s.competitionName;
@@ -1227,23 +1252,33 @@ function renderSummary(s) {
     return a.name.localeCompare(b.name, 'ko');
   });
 
+  // 심사위원 상태 전역 저장 (수동 변경용)
+  window._judgesData = judges;
+  if (!window._judgeStatusOverrides) window._judgeStatusOverrides = {};
+
   if (judges.length) {
-    html += `<h4>👥 심사위원 참석 현황</h4>`;
+    html += `<h4>👥 심사위원 참석 현황 <span style="font-size:11px;font-weight:400;color:#6b7280;">— 상태 클릭해서 수동 변경 가능</span></h4>`;
     html += `<table class="result-table"><thead><tr><th>구분</th><th>성명</th><th>소속</th><th>상태</th></tr></thead><tbody>`;
-    judges.forEach(j => {
-      let pill = `<span class="pill pill-attended">참석</span>`;
-      if (j.status === '불참') pill = `<span class="pill pill-absent">불참</span>`;
-      if (j.status === '위원장') pill = `<span class="pill pill-chair">참석 (위원장)</span>`;
-      if ((j.type || '').includes('예비') && j.status === '참석') pill = `<span class="pill pill-attended">참석</span>`;
-      if ((j.type || '').includes('예비') && j.status === '불참') pill = `<span class="pill pill-absent">불참</span>`;
-      // PDF에서 다른 이름으로 읽혔으면 괄호로 표시
+    judges.forEach((j, idx) => {
+      const curStatus = window._judgeStatusOverrides[j.name] ?? j.status;
+      const pill = judgeStatusPill(curStatus);
       const nameDisplay = j.pdfNameDiff
         ? `${j.name} <span style="color:#6b7280;font-size:11px;">(pdf: ${j.pdfNameDiff})</span>`
         : j.name;
       const typePill = j.type === '예비'
         ? `<span class="pill pill-reserve">예비</span>`
         : `<span class="pill" style="background:#dbeafe;color:#1e40af;">외부</span>`;
-      html += `<tr><td>${typePill}</td><td>${nameDisplay}</td><td>${j.org || '-'}</td><td>${pill}</td></tr>`;
+      html += `<tr>
+        <td>${typePill}</td>
+        <td>${nameDisplay}</td>
+        <td>${j.org || '-'}</td>
+        <td id="judge-status-${idx}">
+          <button onclick="toggleJudgeStatus('${j.name.replace(/'/g, "\\'")}', ${idx})"
+            style="background:none;border:none;padding:0;cursor:pointer;" title="클릭해서 참석/불참 변경">
+            ${pill}
+          </button>
+        </td>
+      </tr>`;
     });
     html += `</tbody></table>`;
   }
@@ -1285,7 +1320,6 @@ function renderSummary(s) {
       html += `<button id="imgZipBtn" onclick="downloadAwardImagesZip()" style="margin-top:4px; background:#10b981; padding:8px 16px; font-size:13px;">📦 수상작 이미지 ZIP 다운로드</button>`;
     }
     html += `<button onclick="downloadAwardsTxt()" style="margin-top:4px; margin-left:6px; background:#6366f1; padding:8px 16px; font-size:13px;">📄 수상작 목록 텍스트 다운로드</button>`;
-    html += `<button onclick="runAwardInput()" style="margin-top:4px; margin-left:6px; background:#0ea5e9; padding:8px 16px; font-size:13px; font-weight:700;">🚀 입상작 입력하기</button>`;
   }
 
   document.getElementById('summaryArea').innerHTML = html;
@@ -1421,6 +1455,14 @@ async function runAwardInput() {
     }
   }
 
+  const uploadFiles = window._processedUploadFiles || [];
+
+  // 심사위원 최종 참석 현황 (수동 변경 반영)
+  const judgesAttended = (window._judgesData || [])
+    .map(j => ({ ...j, status: (window._judgeStatusOverrides || {})[j.name] ?? j.status }))
+    .filter(j => j.status !== '불참')
+    .map(j => j.name);
+
   try {
     const resp = await fetch(`http://localhost:${AWARD_INPUT_PORT}/start`, {
       method: 'POST',
@@ -1428,17 +1470,25 @@ async function runAwardInput() {
       body: JSON.stringify({
         competition_id: competitionId,
         awards_txt: buildAwardsTxtContent(data),
-        images,  // 세움터 이미지 포함
+        images,
+        upload_files: uploadFiles,
+        judges_attended: judgesAttended,
       }),
     });
     if (resp.ok) {
       const imgCount = images.length;
-      alert(`✅ 전송 완료! 입상작 자동입력이 시작됩니다.\n공모전 ID: ${competitionId}${imgCount > 0 ? `\n이미지: ${imgCount}장` : ''}`);
+      const fileCount = uploadFiles.length;
+      alert(
+        `✅ 전송 완료! 공모 결과 입력이 시작됩니다.\n` +
+        `공모전 ID: ${competitionId}` +
+        (imgCount  > 0 ? `\n수상작 이미지: ${imgCount}장` : '') +
+        (fileCount > 0 ? `\n업로드 파일: ${fileCount}개` : '')
+      );
     } else {
       alert(`서버 오류 (${resp.status}): ${await resp.text()}`);
     }
   } catch (e) {
-    alert('입상작 자동입력 프로그램이 실행 중이지 않습니다.\n먼저 맥_실행.command를 실행한 뒤 다시 눌러주세요.');
+    alert('자동입력 프로그램이 실행 중이지 않습니다.\n먼저 맥_실행.command를 실행한 뒤 다시 눌러주세요.');
   }
 }
 
@@ -1662,6 +1712,15 @@ async function renderDownloads(data) {
 
   const warnings = [];
   const results = [];
+  window._processedUploadFiles = []; // 공모 결과 입력하기용 파일 저장소
+
+  // ArrayBuffer/Uint8Array → base64 변환 헬퍼
+  function toBase64(buf) {
+    const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+    let bin = '';
+    bytes.forEach(b => bin += String.fromCharCode(b));
+    return btoa(bin);
+  }
 
   // PDF: 같은 접두사끼리 합본
   for (const [prefix, g] of Object.entries(allGroups)) {
@@ -1679,6 +1738,7 @@ async function renderDownloads(data) {
       const filename = `${prefix}_${compName}${g.datePart}.pdf`;
       const blob = new Blob([bytes], { type: 'application/pdf' });
       results.push({ filename, url: URL.createObjectURL(blob), pageCount: newDoc.getPageCount(), fileCount: pdfFiles.length });
+      window._processedUploadFiles.push({ filename, data: toBase64(bytes) });
     } catch (e) {
       warnings.push(`"${prefix}" 처리 실패: ${e.message}`);
     }
@@ -1696,6 +1756,7 @@ async function renderDownloads(data) {
       const filename = `${prefix}_${compName}${dp}${ext}`;
       const blob = new Blob([f.arrayBuffer], { type: 'application/octet-stream' });
       results.push({ filename, url: URL.createObjectURL(blob), pageCount: null, fileCount: 1, isHwp: true });
+      window._processedUploadFiles.push({ filename, data: toBase64(f.arrayBuffer) });
     }
   }
 
