@@ -4,7 +4,10 @@ import os
 import sys
 import json
 import time
+import base64
+import threading
 import unicodedata
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
@@ -12,6 +15,10 @@ BASE_DIR = Path(__file__).parent
 IMAGE_DIR = BASE_DIR / "입상작 이미지"
 AUTH_STATE = BASE_DIR / "auth_state.json"
 
+_done_event = threading.Event()
+
+
+# ── 유틸 ─────────────────────────────────────────────────
 
 def nfc(s):
     return unicodedata.normalize("NFC", s)
@@ -23,8 +30,6 @@ def find_txt_file():
     files = sorted([str(BASE_DIR / f) for f in all_files])
     if not files:
         print("❌ '수상작목록'으로 시작하는 txt 파일을 찾을 수 없습니다.")
-        print(f"   폴더: {BASE_DIR}")
-        input("\n엔터를 눌러 종료합니다...")
         sys.exit(1)
     if len(files) > 1:
         print("📂 수상작목록 파일이 여러 개 발견되었습니다:")
@@ -66,8 +71,7 @@ def find_image(entry_name):
 
 
 def clean_architect_name(name):
-    """검색용 키워드 추출: 불필요한 단어 모두 제거"""
-    for token in ["주식회사", "(주)", "건축사사무소", "종합", "스튜디오"]:
+    for token in ["주식회사", "(주)", "㈜", "건축사사무소", "종합", "스튜디오"]:
         name = name.replace(token, "")
     return name.strip()
 
@@ -91,6 +95,8 @@ def pause_for_user():
     if choice == "q":
         sys.exit(0)
 
+
+# ── Playwright 동작 함수들 ────────────────────────────────
 
 def ensure_logged_in(page, context, url):
     page.goto(url)
@@ -134,10 +140,8 @@ def create_entry(page, create_url, entry_name, img_path):
 
 
 def get_existing_entry_names(page, contest_url):
-    """이미 등록된 입상작 이름 목록 반환 (NFC 정규화 적용)"""
     page.goto(contest_url)
-    page.wait_for_load_state("load", timeout=15000)
-    time.sleep(0.2)
+    page.wait_for_load_state("networkidle", timeout=15000)
     existing = set()
     rows = page.locator("table tbody tr")
     for i in range(rows.count()):
@@ -146,11 +150,12 @@ def get_existing_entry_names(page, contest_url):
             name = nfc(cells.nth(3).inner_text().strip())
             if name:
                 existing.add(name)
+    if existing:
+        print(f"\n  감지된 기존 항목: {', '.join(existing)}")
     return existing
 
 
 def get_assigned_architect_names(page):
-    """왼쪽 패널에서 '삭제하기' 버튼이 있는 행 = 이미 배정된 건축가"""
     assigned = []
     rows = page.locator("table tbody tr")
     for i in range(rows.count()):
@@ -181,7 +186,6 @@ def go_to_architect_manage(page, contest_url, entry_name):
 
 
 def click_select(row):
-    """행에서 선택 버튼 클릭"""
     btn = row.locator("button:has-text('선택'), a:has-text('선택'), input[value='선택']").first
     btn.wait_for(state="visible", timeout=5000)
     btn.click()
@@ -194,7 +198,6 @@ def select_architect(page, search_name, extra_info, original_name=""):
     search_box.fill(search_name)
     time.sleep(0.7)
 
-    # 오른쪽 검색 결과 테이블 = #dataTable
     rows = page.locator("#dataTable tbody tr")
     count = rows.count()
 
@@ -207,9 +210,6 @@ def select_architect(page, search_name, extra_info, original_name=""):
         click_select(rows.first)
         return
 
-    # 동명 여러 개 → 구분 시도
-    # 1순위: extra_info (txt 3열)
-    # 2순위: 원본 이름에 있던 '종합' / '스튜디오'
     disambig_keywords = [extra_info] if extra_info else []
     for kw in ["종합", "스튜디오"]:
         if kw in original_name:
@@ -225,22 +225,9 @@ def select_architect(page, search_name, extra_info, original_name=""):
     pause_for_user()
 
 
-def run():
-    print("=" * 50)
-    print("  수상작 자동 입력 툴  |  스코어러")
-    print("=" * 50)
+# ── 핵심 자동화 로직 ──────────────────────────────────────
 
-    config_path = BASE_DIR / "config.json"
-    if config_path.exists():
-        with open(config_path, encoding="utf-8") as f:
-            config = json.load(f)
-        contest_id = str(config.get("competition_id", "")).strip()
-        print(f"\n✅ 공모전 ID 자동 로드: {contest_id}")
-        config_path.unlink()  # 사용 후 삭제
-    else:
-        print("\n공모전 ID를 입력하세요.")
-        print("예) 5834")
-        contest_id = input("> ").strip()
+def _run_core(contest_id):
     contest_url = f"https://scorer.co.kr/admin/entry/{contest_id}"
     create_url = f"https://scorer.co.kr/admin/entry/create/{contest_id}"
 
@@ -249,8 +236,7 @@ def run():
 
     if not entries:
         print("❌ 입상작 목록이 비어있습니다.")
-        input("\n엔터를 눌러 종료합니다...")
-        sys.exit(1)
+        return
 
     print(f"\n📋 '{Path(txt_file).name}' 에서 {len(entries)}개 입상작 발견\n")
 
@@ -380,14 +366,97 @@ def run():
                     break
 
         context.storage_state(path=str(AUTH_STATE))
-
-        print(f"\n{'=' * 50}")
-        print(f"  완료!")
-        print(f"  입상작 등록: {len(created)}/{len(entries)}개")
-        print(f"  건축가 관리: {arch_success}/{len(created)}개")
-        print(f"{'=' * 50}")
-
         browser.close()
+
+    print(f"\n{'=' * 50}")
+    print(f"  완료!")
+    print(f"  입상작 등록: {len(created)}/{len(entries)}개")
+    print(f"  건축가 관리: {arch_success}/{len(created)}개")
+    print(f"{'=' * 50}")
+
+
+# ── HTTP 서버 ─────────────────────────────────────────────
+
+def run_automation(competition_id, awards_txt, images=None):
+    """공모 결과 정리도구에서 호출: txt·이미지 저장 후 자동입력 실행"""
+    try:
+        # 수상작목록.txt 저장
+        awards_txt_path = BASE_DIR / "수상작목록.txt"
+        with open(awards_txt_path, "w", encoding="utf-8-sig") as f:
+            f.write(awards_txt)
+
+        # 이미지 저장
+        if images:
+            IMAGE_DIR.mkdir(exist_ok=True)
+            for img in images:
+                img_path = IMAGE_DIR / img["filename"]
+                with open(img_path, "wb") as f:
+                    f.write(base64.b64decode(img["data"]))
+            print(f"✅ 이미지 {len(images)}장 저장 완료")
+
+        print(f"\n▶ 자동입력 시작 — 공모전 ID: {competition_id}")
+        _run_core(str(competition_id))
+    finally:
+        _done_event.set()
+
+
+class Handler(BaseHTTPRequestHandler):
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.end_headers()
+
+    def do_POST(self):
+        if self.path == "/start":
+            length = int(self.headers["Content-Length"])
+            data = json.loads(self.rfile.read(length).decode("utf-8"))
+            self.send_response(200)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"status":"ok"}')
+            threading.Thread(
+                target=run_automation,
+                args=(str(data["competition_id"]), data["awards_txt"]),
+                kwargs={"images": data.get("images", [])},
+                daemon=True,
+            ).start()
+
+    def log_message(self, *args):
+        pass  # 서버 로그 숨김
+
+
+# ── 진입점 ────────────────────────────────────────────────
+
+def run():
+    print("=" * 50)
+    print("  수상작 자동 입력 툴  |  스코어러")
+    print("=" * 50)
+
+    server = HTTPServer(("localhost", 8765), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    print("\n공모 결과 정리도구에서 '🚀 입상작 입력하기'를 누르시거나")
+    print("바로 시작하려면 's'를 입력하세요.")
+    print("> ", end="", flush=True)
+
+    def wait_for_input():
+        choice = input().strip().lower()
+        if choice == "s":
+            print("\n공모전 ID를 입력하세요.  예) 5834")
+            contest_id = input("> ").strip()
+            try:
+                _run_core(contest_id)
+            finally:
+                _done_event.set()
+
+    threading.Thread(target=wait_for_input, daemon=True).start()
+
+    _done_event.wait()
+    server.shutdown()
+    input("\n종료하려면 엔터를 누르세요...")
 
 
 if __name__ == "__main__":
