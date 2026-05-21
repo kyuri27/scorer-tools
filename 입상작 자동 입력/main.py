@@ -279,6 +279,66 @@ def select_architect(page, search_name, extra_info, original_name=""):
 
 # ── 파일 업로드 ──────────────────────────────────────────
 
+def _ensure_judging_toggles_on(page):
+    """
+    파일 목록 테이블에서 '심사결과 파일 여부' 토글이 OFF인 행을 찾아 ON으로 켠다.
+    변경이 있으면 True 반환.
+    """
+    toggled = 0
+
+    # ── 방법 1: 체크박스 타입 토글 ─────────────────────────
+    # tbody 행 내부의 체크박스 중 unchecked인 것을 켠다
+    rows = page.locator("table tbody tr")
+    for i in range(rows.count()):
+        row = rows.nth(i)
+        # 행 텍스트가 파일 행인지 확인 (빈 행 / 헤더 스킵)
+        row_text = row.inner_text().strip()
+        if not row_text:
+            continue
+
+        # 체크박스 방식
+        checkboxes = row.locator("input[type='checkbox']")
+        for j in range(checkboxes.count()):
+            cb = checkboxes.nth(j)
+            try:
+                if not cb.is_checked():
+                    cb.check()
+                    toggled += 1
+                    print(f"     ↳ 행 {i+1}: 심사결과 파일 여부 체크박스 ON")
+            except Exception:
+                pass
+
+        # 토글 스위치 방식 (label.switch > input, .toggle-checkbox 등)
+        toggle_inputs = row.locator("label.switch input, .toggle-checkbox, input.toggle")
+        for j in range(toggle_inputs.count()):
+            ti = toggle_inputs.nth(j)
+            try:
+                if not ti.is_checked():
+                    ti.check()
+                    toggled += 1
+                    print(f"     ↳ 행 {i+1}: 심사결과 파일 여부 토글 ON")
+            except Exception:
+                pass
+
+    # ── 방법 2: 위에서 못 잡은 경우 — 클릭 가능한 .toggle 요소 ─
+    if toggled == 0:
+        off_toggles = page.locator(
+            "table tbody tr .toggle.off, "
+            "table tbody tr [class*='toggle'][class*='off'], "
+            "table tbody tr [class*='switch'][aria-checked='false']"
+        )
+        for j in range(off_toggles.count()):
+            try:
+                off_toggles.nth(j).click()
+                toggled += 1
+                print(f"     ↳ 토글 {j+1}: 심사결과 파일 여부 ON")
+                time.sleep(0.2)
+            except Exception:
+                pass
+
+    return toggled > 0
+
+
 def upload_files(page, contest_id):
     files = [str(UPLOAD_DIR / f) for f in os.listdir(UPLOAD_DIR)
              if not nfc(f).startswith(".")]
@@ -302,6 +362,22 @@ def upload_files(page, contest_id):
     print(f"  ✅ {len(files)}개 파일 업로드 완료")
     for f in files:
         print(f"     - {Path(f).name}")
+
+    # ── 심사결과 파일 여부 토글 확인 ─────────────────────────
+    print("  심사결과 파일 여부 확인 중...")
+    changed = _ensure_judging_toggles_on(page)
+    if changed:
+        # 토글 변경 후 저장
+        try:
+            save_btn2 = page.get_by_role("button", name="저장하기")
+            save_btn2.wait_for(state="visible", timeout=5000)
+            save_btn2.click()
+            page.wait_for_load_state("load", timeout=15000)
+            print("  ✅ 토글 변경 후 저장 완료")
+        except Exception as e:
+            print(f"  ⚠️ 토글 저장 중 오류: {e}")
+    else:
+        print("  ✅ 모든 파일 심사결과 파일 여부 ON 확인됨")
 
 
 # ── 핵심 자동화 로직 ──────────────────────────────────────
