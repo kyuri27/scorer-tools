@@ -2,31 +2,25 @@ let extractedData = null;
 let cachedUrl = null;
 
 // 공모명 정제: 접미사 제거 + 건축행위 괄호 처리
-// buildAction: 세움터 '건축행위' 필드값 (예: "리모델링", "증축"). 있으면 우선 사용.
 // - 신축은 기본값이라 제거만
 // - 그 외 건축행위(증축/개축/리모델링 등)는 이름 뒤 괄호로 이동
-function cleanCompetitionName(raw, buildAction = '') {
+function cleanCompetitionName(raw) {
   if (!raw) return '';
   const kwAll = ['리모델링', '대수선', '용도변경', '재건축', '증축', '개축', '재축', '이전', '철거', '신축'];
+  const found = [];
   let name = raw;
-  // 이름에서 건축행위 키워드 제거 (필드 우선 여부와 관계없이 항상 정리)
   for (const kw of kwAll) {
-    name = name.replace(new RegExp(kw + '(?:사업|공사)?', 'g'), ' ');
+    if (name.includes(kw)) {
+      found.push(kw);
+      name = name.replace(new RegExp(kw + '(?:사업|공사)?', 'g'), ' ');
+    }
   }
   // 접미사 제거 (건립 포함)
   name = name.replace(/(설계공모|건축설계공모|제안공모|공모|건립사업|사업|건립)$/, '');
   // 공백/구두점 정리
   name = name.replace(/\s+/g, ' ').trim().replace(/[\s·,]+$/, '').trim();
-
-  // 건축행위 결정: '건축행위' 필드 우선, 없으면 원본 이름에서 탐색
-  let extras;
-  if (buildAction && buildAction.trim()) {
-    extras = buildAction.split(/[,，、·\/\s]+/).map(s => s.trim()).filter(s => s && s !== '신축');
-  } else {
-    const found = kwAll.filter(kw => raw.includes(kw) && kw !== '신축');
-    extras = found;
-  }
-
+  // 신축 외 건축행위 → 괄호 추가
+  const extras = found.filter(k => k !== '신축');
   if (extras.length > 0) name += `(${extras.join(', ')})`;
   return name;
 }
@@ -106,7 +100,7 @@ function renderResult(data) {
 
   const competitionName  = data['설계공모명'] || data['공모명'] || data['공모명_원본'] || '';
   const noticeNo         = data['공모번호'] || data['공고번호'] || '';
-  const agency           = data['건축물주요도'] || data['공고기관'] || '';
+  const agency           = data['공고기관'] || '';
   const scale            = data['건축연면적'] || data['건축규모'] || '';
   const location         = data['위치'] || data['소재지'] || '';
   const budget           = data['총사업비'] || '';

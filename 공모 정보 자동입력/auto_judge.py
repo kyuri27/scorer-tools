@@ -31,6 +31,7 @@ import sys
 JUDGES_FILE = "judges.txt"
 AUTH_FILE = "auth_state.json"   # 로그인 세션 저장 파일
 FILES_DIR = "공모 파일"          # 업로드할 파일 폴더명
+ORG_FILE = "발주처.txt"          # 발주처 이름 파일
 
 BROWSER_WIDTH = 1920
 BROWSER_HEIGHT = 1080
@@ -475,6 +476,133 @@ def _print_summary(results: list, all_judges: list):
             print(f"  - [{judge['type']}] {judge['name']} ({judge['affiliation']})")
 
 
+def load_organization_from_file(filepath: str) -> str:
+    """발주처.txt에서 발주처 이름 한 줄 읽기"""
+    path = SCRIPT_DIR / filepath
+    if not path.exists():
+        path.write_text("# 발주처 이름을 한 줄로 입력하세요\n# 예) 충청남도 당진시\n", encoding="utf-8")
+        print(f"📝 '{filepath}' 파일이 없어서 생성했습니다. 이름을 입력하고 다시 시도해주세요.")
+        return ""
+    with open(path, encoding="utf-8-sig") as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#"):
+                return line
+    return ""
+
+
+# 검색 시 제거할 행정 접미사 (긴 것부터 순서대로)
+ADMIN_SUFFIXES = [
+    "특별자치시", "특별자치도", "특별시", "광역시",
+    "시청", "군청", "구청", "도청",
+    "시", "군", "구", "도",
+]
+
+def extract_search_keyword(name: str) -> str:
+    """발주처 이름에서 핵심 검색 키워드 추출 (행정 접미사 제거)"""
+    for suffix in ADMIN_SUFFIXES:
+        if name.endswith(suffix):
+            keyword = name[: -len(suffix)].strip()
+            if keyword:
+                return keyword
+    return name
+
+
+def search_org_and_select(page, search_term: str, original_name: str) -> bool:
+    """DataTable에서 검색어로 발주처 검색 후 유사도 기반 선택. 성공 여부 반환."""
+    search_box = page.locator('input[aria-controls="dataTable"]')
+    search_box.wait_for(state="visible", timeout=5000)
+    search_box.click()
+    search_box.fill("")
+    search_box.fill(search_term)
+    page.wait_for_timeout(SEARCH_WAIT_MS)
+
+    rows = page.locator('#dataTable tbody tr')
+    row_count = rows.count()
+    if row_count == 0:
+        return False
+
+    first_text = rows.nth(0).inner_text().strip()
+    if "No data" in first_text:
+        return False
+
+    # 결과가 1개면 바로 선택, 여러 개면 유사도로 매칭
+    if row_count == 1:
+        target_row = rows.nth(0)
+        print(f"     검색결과 1개 → 자동 선택")
+    else:
+        print(f"     검색결과 {row_count}개 → 유사도 매칭 중")
+        best_score, best_idx = 0.0, 0
+        for i in range(row_count):
+            score = affiliation_similarity(original_name, rows.nth(i).inner_text())
+            if score > best_score:
+                best_score, best_idx = score, i
+        target_row = rows.nth(best_idx)
+        print(f"     매칭 (유사도 {best_score:.0%}): {target_row.inner_text().strip()[:40]}")
+
+    select_btn = target_row.locator('button:has-text("선택")')
+    if select_btn.count() == 0:
+        return False  # 선택 버튼 없음 = 실제 결과 없는 빈 행
+    select_btn.first.wait_for(state="visible", timeout=5000)
+    select_btn.first.click(timeout=5000)
+    page.wait_for_timeout(ACTION_WAIT_MS)
+    return True
+
+
+def run_organization_input(page, comp_id: str):
+    """발주처 관리 페이지에서 발주처 검색 후 선택"""
+    name = load_organization_from_file(ORG_FILE)
+    if not name:
+        print(f"  ❌ '{ORG_FILE}'에서 발주처 이름을 읽을 수 없습니다. 파일을 확인해주세요.")
+        return
+
+    print(f"  발주처: {name}")
+
+    # 발주처 관리 페이지로 이동
+    url = f"https://scorer.co.kr/admin/competition/{comp_id}/organization_manage"
+    print(f"  → {url} 로 이동 중...")
+    try:
+        page.goto(url, wait_until="domcontentloaded", timeout=15000)
+        page.wait_for_timeout(1000)
+    except Exception as e:
+        print(f"  ❌ 페이지 이동 실패: {e}")
+        return
+
+    # 이미 등록된 발주처 확인 (유사도 기반)
+    try:
+        registered_cells = page.locator("table:not(#dataTable) td b")
+        for i in range(registered_cells.count()):
+            registered_name = registered_cells.nth(i).inner_text().strip()
+            if affiliation_similarity(name, registered_name) >= 0.8:
+                print(f"  ✓ 이미 등록됨 ({registered_name}), 건너뜁니다")
+                return
+    except Exception:
+        pass
+
+    # ── 검색: 먼저 원본 이름으로, 실패하면 핵심 키워드로 재시도 ──
+    try:
+        search_box = page.locator('input[aria-controls="dataTable"]')
+
+        print(f"     '{name}' 으로 검색 중...")
+        found = search_org_and_select(page, name, name)
+
+        if not found:
+            keyword = extract_search_keyword(name)
+            if keyword != name:
+                print(f"     결과 없음 → '{keyword}' 으로 재검색 중...")
+                found = search_org_and_select(page, keyword, name)
+
+        if not found:
+            print(f"  ❌ '{name}'을(를) DB에서 찾지 못했습니다. '발주처 새로 만들기'로 직접 추가해주세요.")
+            return
+
+        print(f"  ✅ 발주처 '{name}' 추가 완료")
+        print(f"  ✅ 발주처 '{name}' 추가 완료")
+
+    except Exception as e:
+        print(f"  ❌ 발주처 선택 중 오류: {e}")
+
+
 def upload_files(page, comp_id: str) -> tuple[bool, str]:
     """파일 관리 페이지에 '공모 파일' 폴더의 파일을 업로드"""
     files_dir = SCRIPT_DIR / FILES_DIR
@@ -552,8 +680,30 @@ def navigate_to_competition(page, comp_id: str) -> bool:
 
 def main():
     print("=" * 60)
-    print("심사위원 자동 입력 스크립트")
+    print("공모 정보 자동 입력 스크립트")
     print("=" * 60)
+
+    # ── 작업 모드 선택 ──
+    MODE_LABELS = {
+        "1": "전체  (심사위원 + 파일 업로드 + 발주처)",
+        "2": "심사위원만",
+        "3": "파일 업로드만",
+        "4": "발주처만",
+    }
+    print("\n어떤 작업을 할까요?")
+    for key, label in MODE_LABELS.items():
+        print(f"  [{key}] {label}")
+    print("─" * 60)
+    while True:
+        mode = input(">>> 번호 선택: ").strip()
+        if mode in MODE_LABELS:
+            break
+        print("  1~4 중에서 입력해주세요.")
+    print(f"✅ 선택: {MODE_LABELS[mode]}\n")
+
+    do_judges = mode in ("1", "2")
+    do_files  = mode in ("1", "3")
+    do_org    = mode in ("1", "4")
 
     auth_path = SCRIPT_DIR / AUTH_FILE
     has_saved_session = auth_path.exists()
@@ -581,7 +731,6 @@ def main():
         print(">>> ⚠️  지금 열린 이 브라우저 창에서만 작업하세요!")
         print(">>>    (다른 크롬 창 사용 금지, 새 탭 열지 말기, 창 닫지 말기)")
 
-        # 저장된 세션 없으면 최초 로그인 안내
         if not has_saved_session:
             print()
             print(">>> 카카오톡으로 로그인이 필요합니다.")
@@ -597,9 +746,7 @@ def main():
         competition_no = 1
         while True:
             print("\n" + "─" * 60)
-            print(f"공모 ID를 입력하세요.")
-            print(f"  예) 6374  →  scorer.co.kr/admin/competition/6374/jury_manage")
-            print(f"  [q + 엔터] 종료")
+            print(f"공모 ID를 입력하세요.  (종료: q)")
             print("─" * 60)
             comp_id = input(">>> 공모 ID: ").strip()
 
@@ -611,43 +758,34 @@ def main():
                 print("⚠️  숫자만 입력해주세요.")
                 continue
 
-            # 페이지 이동
-            if not navigate_to_competition(page, comp_id):
-                continue
-
-            # 세션 저장 (로그인 후 갱신)
-            try:
-                context.storage_state(path=str(auth_path))
-            except Exception:
-                pass
-
             print("\n" + "█" * 60)
-            print(f"█ {competition_no}번째 공모 (ID: {comp_id}) 입력 시작")
+            print(f"█ {competition_no}번째 공모 (ID: {comp_id})")
             print("█" * 60)
 
-            ok = run_one_competition(page)
-
-            if not ok:
-                print("\n❌ 브라우저 연결이 끊어져서 종료합니다.")
-                print("   스크립트를 다시 실행해주세요.")
-                print("   (로그인 세션은 저장되어 있어서 카톡 인증은 안 해도 됩니다)")
-                break
+            # ── 심사위원 ──
+            if do_judges:
+                if not navigate_to_competition(page, comp_id):
+                    continue
+                try:
+                    context.storage_state(path=str(auth_path))
+                except Exception:
+                    pass
+                ok = run_one_competition(page)
+                if not ok:
+                    print("\n❌ 브라우저 연결이 끊어져서 종료합니다.")
+                    print("   스크립트를 다시 실행해주세요.")
+                    break
 
             # ── 파일 업로드 ──
-            print("\n" + "─" * 60)
-            print("파일 업로드를 진행할까요?")
-            print(f"  [엔터]  → '공모 파일' 폴더의 파일을 업로드")
-            print(f"  [n]     → 건너뛰기")
-            print("─" * 60)
-            upload_choice = input(">>> 선택: ").strip().lower()
-
-            if upload_choice != "n":
-                print(f"\n[파일 업로드] 공모 ID: {comp_id}")
+            if do_files:
+                print(f"\n[파일 업로드]")
                 success, msg = upload_files(page, comp_id)
-                if success:
-                    print(f"  ✅ {msg}")
-                else:
-                    print(f"  ❌ {msg}")
+                print(f"  {'✅' if success else '❌'} {msg}")
+
+            # ── 발주처 ──
+            if do_org:
+                print(f"\n[발주처 입력]")
+                run_organization_input(page, comp_id)
 
             competition_no += 1
 
