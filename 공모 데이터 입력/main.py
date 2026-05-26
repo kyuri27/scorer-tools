@@ -119,16 +119,20 @@ def _save_auth(context, auth_path: Path):
         pass
 
 
-def _save_files_to_temp(files_data: list) -> Path:
-    """base64 파일 목록을 임시 폴더에 저장하고 경로 반환"""
-    tmp = Path(tempfile.mkdtemp(prefix="scorer_"))
+def _clear_and_save_files(dir_path: Path, files_data: list):
+    """폴더를 비우고 base64 파일 목록을 저장"""
+    dir_path.mkdir(parents=True, exist_ok=True)
+    # 기존 파일 삭제
+    for f in dir_path.iterdir():
+        if f.is_file() and not f.name.startswith("."):
+            f.unlink()
+    # 새 파일 저장
     for f in files_data:
         fname = f.get("filename", "file")
         try:
-            (tmp / fname).write_bytes(base64.b64decode(f.get("data", "")))
+            (dir_path / fname).write_bytes(base64.b64decode(f.get("data", "")))
         except Exception as e:
             print(f"  ⚠️  파일 저장 실패 ({fname}): {e}")
-    return tmp
 
 
 # ============================================================
@@ -618,15 +622,13 @@ def _get_uploaded_filenames(page) -> set:
         return set()
 
 
-def upload_notice_files(page, comp_id: str, files_dir_override: Path = None) -> tuple:
-    """공고파일 업로드 (공모 파일 폴더 또는 HTML에서 받은 임시 폴더)"""
-    files_dir = files_dir_override or (SCRIPT_DIR / NOTICE_FILES_DIR)
+def upload_notice_files(page, comp_id: str) -> tuple:
+    """공모 파일 폴더의 파일을 파일관리 페이지에 업로드"""
+    files_dir = SCRIPT_DIR / NOTICE_FILES_DIR
 
     if not files_dir.exists():
-        if files_dir_override is None:
-            files_dir.mkdir()
-            return False, f"'공모 파일' 폴더가 없어서 새로 만들었습니다. 파일을 넣고 다시 시도해주세요."
-        return False, "파일 폴더를 찾을 수 없습니다."
+        files_dir.mkdir()
+        return False, f"'공모 파일' 폴더가 없어서 새로 만들었습니다. 파일을 넣고 다시 시도해주세요."
 
     files = sorted([f for f in files_dir.iterdir() if f.is_file() and not f.name.startswith(".")])
     if not files:
@@ -701,14 +703,9 @@ def run_info_task(page, context, auth_path: Path, data: dict):
     # 공고파일 업로드
     if notice_files_data:
         print(f"\n[공고파일 업로드] {len(notice_files_data)}개")
-        tmp = None
-        try:
-            tmp = _save_files_to_temp(notice_files_data)
-            ok, msg = upload_notice_files(page, comp_id, files_dir_override=tmp)
-            print(f"  {'✅' if ok else '❌'} {msg}")
-        finally:
-            if tmp and tmp.exists():
-                shutil.rmtree(tmp, ignore_errors=True)
+        _clear_and_save_files(SCRIPT_DIR / NOTICE_FILES_DIR, notice_files_data)
+        ok, msg = upload_notice_files(page, comp_id)
+        print(f"  {'✅' if ok else '❌'} {msg}")
     else:
         print("\n[공고파일 업로드] 전달받은 파일 없음, 건너뜁니다.")
 
@@ -1022,19 +1019,15 @@ def run_result_task(page, context, auth_path: Path, data: dict):
     contest_url = f"https://scorer.co.kr/admin/entry/{comp_id}"
     create_url  = f"https://scorer.co.kr/admin/entry/create/{comp_id}"
 
-    # 수신 파일/이미지 저장
+    # 수신 파일/이미지 저장 (폴더 비우고 새로 저장)
     if awards_txt:
         (SCRIPT_DIR / AWARDS_FILE).write_text(awards_txt, encoding="utf-8-sig")
         print(f"  수상작목록.txt 저장됨")
     if images:
-        IMAGE_DIR.mkdir(exist_ok=True)
-        for img in images:
-            (IMAGE_DIR / img["filename"]).write_bytes(base64.b64decode(img["data"]))
+        _clear_and_save_files(IMAGE_DIR, images)
         print(f"  이미지 {len(images)}장 저장됨")
     if upload_files_data:
-        UPLOAD_DIR.mkdir(exist_ok=True)
-        for uf in upload_files_data:
-            (UPLOAD_DIR / uf["filename"]).write_bytes(base64.b64decode(uf["data"]))
+        _clear_and_save_files(UPLOAD_DIR, upload_files_data)
         print(f"  결과 파일 {len(upload_files_data)}개 저장됨")
 
     if not awards_txt:
