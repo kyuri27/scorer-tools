@@ -23,7 +23,14 @@
 
 from playwright.sync_api import sync_playwright
 from pathlib import Path
+from http.server import HTTPServer, BaseHTTPRequestHandler
 import sys
+import threading
+import queue as _queue_module
+import json
+import base64
+import tempfile
+import shutil
 
 # ============================================================
 # 설정값
@@ -39,9 +46,104 @@ BROWSER_HEIGHT = 1080
 SEARCH_WAIT_MS = 1000       # 검색 결과 로딩 대기
 ACTION_WAIT_MS = 500        # 각 동작 사이 대기
 
+SERVER_PORT = 8765          # HTML 도구 연동용 로컬 서버 포트
+
 SCRIPT_DIR = Path(__file__).parent
 
+# 서버 모드용 전역 큐
+_trigger_queue: "_queue_module.Queue" = _queue_module.Queue()
 
+
+# ============================================================
+# 로컬 HTTP 서버 (HTML 도구 연동)
+# ============================================================
+
+class _CompHandler(BaseHTTPRequestHandler):
+    """공모결과정리도구.html 의 '공모 정보 입력하기' 버튼 요청을 처리"""
+
+    def log_message(self, format, *args):
+        pass  # 서버 로그 억제
+
+    def _cors(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self._cors()
+        self.end_headers()
+
+    def do_GET(self):
+        if self.path == "/status":
+            body = json.dumps({"status": "ready"}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self._cors()
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def do_POST(self):
+        if self.path == "/start-competition":
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                raw = self.rfile.read(length)
+                data = json.loads(raw)
+                _trigger_queue.put(("http", data))
+                resp = json.dumps({"ok": True}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self._cors()
+                self.end_headers()
+                self.wfile.write(resp)
+            except Exception as e:
+                self.send_response(500)
+                self._cors()
+                self.end_headers()
+                self.wfile.write(str(e).encode("utf-8"))
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+
+def start_local_server() -> HTTPServer:
+    """백그라운드 스레드에서 HTTP 서버 시작"""
+    server = HTTPServer(("localhost", SERVER_PORT), _CompHandler)
+    t = threading.Thread(target=server.serve_forever, daemon=True)
+    t.start()
+    return server
+
+
+def _keyboard_thread_func():
+    """터미널 입력을 큐에 전달하는 백그라운드 스레드"""
+    while True:
+        try:
+            line = sys.stdin.readline()
+            if not line:
+                break
+            _trigger_queue.put(("keyboard", line.strip()))
+        except Exception:
+            break
+
+
+def save_notice_files_to_temp(notice_files: list) -> Path:
+    """base64 인코딩된 파일들을 임시 폴더에 저장하고 폴더 경로 반환"""
+    tmp_dir = Path(tempfile.mkdtemp(prefix="scorer_upload_"))
+    for f in notice_files:
+        filename = f.get("filename", "file")
+        data_b64 = f.get("data", "")
+        try:
+            file_bytes = base64.b64decode(data_b64)
+            (tmp_dir / filename).write_bytes(file_bytes)
+        except Exception as e:
+            print(f"  ⚠️  파일 저장 실패 ({filename}): {e}")
+    return tmp_dir
+
+
+# ============================================================
 def load_judges_from_file(filepath: str) -> list:
     """judges.txt 파일에서 심사위원 정보를 읽음"""
     path = SCRIPT_DIR / filepath
@@ -324,9 +426,10 @@ def sort_judges(judges: list) -> list:
     return sorted(judges, key=lambda j: (type_order.get(j["type"], 2), j["name"]))
 
 
-def run_one_competition(page) -> bool:
+def run_one_competition(page, judges_override: list = None) -> bool:
     """
-    judges.txt를 읽어서 한 공모의 심사위원을 모두 입력
+    심사위원을 모두 입력
+    judges_override: HTML 도구에서 전달받은 심사위원 목록. None이면 judges.txt에서 읽음.
     return: 정상 진행 여부 (False면 심각한 문제로 중단)
 
     순서가 중요하므로, 한 명이 실패하면 일시정지하고 사용자에게 물어봄:
@@ -334,8 +437,11 @@ def run_one_competition(page) -> bool:
       - r:    화면을 고친 뒤 그 사람 재시도
       - q:    전체 중단
     """
-    # judges.txt 읽기 (매번 새로 읽음 — 파일 수정사항 반영)
-    judges = load_judges_from_file(JUDGES_FILE)
+    # 심사위원 목록 결정: override 우선, 없으면 파일에서 읽기
+    if judges_override is not None:
+        judges = judges_override
+    else:
+        judges = load_judges_from_file(JUDGES_FILE)
     if not judges:
         print(f"❌ '{JUDGES_FILE}'에서 심사위원 정보를 읽을 수 없습니다.")
         print(f"   파일을 확인하고 다시 시도해주세요.")
@@ -549,9 +655,14 @@ def search_org_and_select(page, search_term: str, original_name: str) -> bool:
     return True
 
 
-def run_organization_input(page, comp_id: str):
-    """발주처 관리 페이지에서 발주처 검색 후 선택"""
-    name = load_organization_from_file(ORG_FILE)
+def run_organization_input(page, comp_id: str, agency_override: str = None):
+    """발주처 관리 페이지에서 발주처 검색 후 선택
+    agency_override: HTML 도구에서 전달받은 발주처 이름. None이면 발주처.txt에서 읽음.
+    """
+    if agency_override:
+        name = agency_override
+    else:
+        name = load_organization_from_file(ORG_FILE)
     if not name:
         print(f"  ❌ '{ORG_FILE}'에서 발주처 이름을 읽을 수 없습니다. 파일을 확인해주세요.")
         return
@@ -597,18 +708,19 @@ def run_organization_input(page, comp_id: str):
             return
 
         print(f"  ✅ 발주처 '{name}' 추가 완료")
-        print(f"  ✅ 발주처 '{name}' 추가 완료")
 
     except Exception as e:
         print(f"  ❌ 발주처 선택 중 오류: {e}")
 
 
-def upload_files(page, comp_id: str) -> tuple[bool, str]:
-    """파일 관리 페이지에 '공모 파일' 폴더의 파일을 업로드"""
-    files_dir = SCRIPT_DIR / FILES_DIR
+def upload_files(page, comp_id: str, files_dir_override: Path = None) -> tuple[bool, str]:
+    """파일 관리 페이지에 파일을 업로드
+    files_dir_override: HTML 도구에서 전달받은 파일을 저장한 임시 폴더. None이면 '공모 파일' 폴더 사용.
+    """
+    files_dir = files_dir_override if files_dir_override is not None else (SCRIPT_DIR / FILES_DIR)
 
-    # 폴더 없으면 생성 후 안내
-    if not files_dir.exists():
+    # 폴더 없으면 생성 후 안내 (files_dir_override가 없을 때만)
+    if not files_dir.exists() and files_dir_override is None:
         files_dir.mkdir()
         return False, f"'공모 파일' 폴더가 없어서 새로 만들었습니다. 파일을 넣고 다시 시도해주세요.\n   위치: {files_dir}"
 
@@ -678,11 +790,47 @@ def navigate_to_competition(page, comp_id: str) -> bool:
     return True
 
 
-def main():
-    print("=" * 60)
-    print("공모 정보 자동 입력 스크립트")
-    print("=" * 60)
+def _open_browser_and_login(p, auth_path: Path):
+    """브라우저를 열고 세션 로드/로그인 처리 후 (browser, context, page) 반환"""
+    browser = p.chromium.launch(
+        headless=False,
+        args=[f'--window-size={BROWSER_WIDTH},{BROWSER_HEIGHT}']
+    )
+    has_saved_session = auth_path.exists()
 
+    if has_saved_session:
+        print(f"💾 저장된 로그인 세션을 발견했습니다. 불러옵니다.")
+        context = browser.new_context(
+            no_viewport=True,
+            storage_state=str(auth_path)
+        )
+    else:
+        context = browser.new_context(no_viewport=True)
+
+    page = context.new_page()
+    auto_accept_dialogs(page)
+
+    print()
+    print(">>> 브라우저가 열렸습니다.")
+    print(">>> ⚠️  지금 열린 이 브라우저 창에서만 작업하세요!")
+    print(">>>    (다른 크롬 창 사용 금지, 새 탭 열지 말기, 창 닫지 말기)")
+
+    if not has_saved_session:
+        print()
+        print(">>> 카카오톡으로 로그인이 필요합니다.")
+        print(">>> 브라우저에서 로그인 완료 후 엔터를 눌러주세요.")
+        input(">>> [엔터] ")
+        try:
+            context.storage_state(path=str(auth_path))
+            print(f"💾 로그인 세션을 저장했습니다. 다음부터는 자동 로그인됩니다.")
+        except Exception as e:
+            print(f"⚠️  세션 저장 실패 (무시하고 계속): {e}")
+
+    return browser, context, page
+
+
+def _run_terminal_mode(page, context, auth_path: Path):
+    """터미널 직접 입력 모드: 기존 방식 그대로"""
     # ── 작업 모드 선택 ──
     MODE_LABELS = {
         "1": "전체  (심사위원 + 파일 업로드 + 발주처)",
@@ -705,100 +853,187 @@ def main():
     do_files  = mode in ("1", "3")
     do_org    = mode in ("1", "4")
 
-    auth_path = SCRIPT_DIR / AUTH_FILE
-    has_saved_session = auth_path.exists()
+    competition_no = 1
+    while True:
+        print("\n" + "─" * 60)
+        print(f"공모 ID를 입력하세요.  (종료: q)")
+        print("─" * 60)
+        comp_id = input(">>> 공모 ID: ").strip()
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=False,
-            args=[f'--window-size={BROWSER_WIDTH},{BROWSER_HEIGHT}']
-        )
+        if comp_id.lower() == "q":
+            print("\n>>> 종료합니다. 수고하셨습니다! 👋")
+            break
 
-        if has_saved_session:
-            print(f"💾 저장된 로그인 세션을 발견했습니다. 불러옵니다.")
-            context = browser.new_context(
-                no_viewport=True,
-                storage_state=str(auth_path)
-            )
-        else:
-            context = browser.new_context(no_viewport=True)
+        if not comp_id.isdigit():
+            print("⚠️  숫자만 입력해주세요.")
+            continue
 
-        page = context.new_page()
-        auto_accept_dialogs(page)
+        print("\n" + "█" * 60)
+        print(f"█ {competition_no}번째 공모 (ID: {comp_id})")
+        print("█" * 60)
 
-        print()
-        print(">>> 브라우저가 열렸습니다.")
-        print(">>> ⚠️  지금 열린 이 브라우저 창에서만 작업하세요!")
-        print(">>>    (다른 크롬 창 사용 금지, 새 탭 열지 말기, 창 닫지 말기)")
-
-        if not has_saved_session:
-            print()
-            print(">>> 카카오톡으로 로그인이 필요합니다.")
-            print(">>> 브라우저에서 로그인 완료 후 엔터를 눌러주세요.")
-            input(">>> [엔터] ")
+        # ── 심사위원 ──
+        if do_judges:
+            if not navigate_to_competition(page, comp_id):
+                continue
             try:
                 context.storage_state(path=str(auth_path))
-                print(f"💾 로그인 세션을 저장했습니다. 다음부터는 자동 로그인됩니다.")
-            except Exception as e:
-                print(f"⚠️  세션 저장 실패 (무시하고 계속): {e}")
-
-        # ── 반복 루프: 공모를 계속 처리 ──
-        competition_no = 1
-        while True:
-            print("\n" + "─" * 60)
-            print(f"공모 ID를 입력하세요.  (종료: q)")
-            print("─" * 60)
-            comp_id = input(">>> 공모 ID: ").strip()
-
-            if comp_id.lower() == "q":
-                print("\n>>> 종료합니다. 수고하셨습니다! 👋")
+            except Exception:
+                pass
+            ok = run_one_competition(page)
+            if not ok:
+                print("\n❌ 브라우저 연결이 끊어져서 종료합니다.")
+                print("   스크립트를 다시 실행해주세요.")
                 break
 
-            if not comp_id.isdigit():
-                print("⚠️  숫자만 입력해주세요.")
+        # ── 파일 업로드 ──
+        if do_files:
+            print(f"\n[파일 업로드]")
+            success, msg = upload_files(page, comp_id)
+            print(f"  {'✅' if success else '❌'} {msg}")
+
+        # ── 발주처 ──
+        if do_org:
+            print(f"\n[발주처 입력]")
+            run_organization_input(page, comp_id)
+
+        competition_no += 1
+
+
+def _run_server_mode(page, context, auth_path: Path):
+    """HTML 도구 연동 모드: 로컬 서버 대기 후 HTTP로 받은 데이터로 자동 실행"""
+    server = start_local_server()
+    print(f"\n🌐 로컬 서버 시작됨 (포트 {SERVER_PORT})")
+    print("   공모결과정리도구.html 에서 '공모 정보 입력하기' 버튼을 누르면 자동으로 실행됩니다.")
+    print("   종료하려면 [q] + 엔터를 누르세요.\n")
+
+    # 키보드 입력 스레드 (q 입력 감지용)
+    kb_thread = threading.Thread(target=_keyboard_thread_func, daemon=True)
+    kb_thread.start()
+
+    competition_no = 1
+    while True:
+        print("⏳ HTML 도구에서 버튼을 기다리는 중...  (종료: q + 엔터)")
+        source, data = _trigger_queue.get()
+
+        # 키보드 입력 처리
+        if source == "keyboard":
+            if str(data).lower() == "q":
+                print("\n>>> 종료합니다. 수고하셨습니다! 👋")
+                break
+            # q 외 다른 입력은 무시
+            continue
+
+        # ── HTTP 트리거 ──
+        assert source == "http"
+        comp_id   = str(data.get("competition_id", "")).strip()
+        agency    = data.get("agency", "").strip()
+        judges_raw = data.get("judges", [])
+        notice_files_data = data.get("notice_files", [])
+
+        if not comp_id or not comp_id.isdigit():
+            print(f"❌ 잘못된 공모 ID: '{comp_id}'")
+            continue
+
+        print(f"\n{'█' * 60}")
+        print(f"█ {competition_no}번째 공모 (ID: {comp_id})")
+        if agency:
+            print(f"█ 발주처: {agency}")
+        print(f"{'█' * 60}")
+
+        # judges 변환: HTML의 {name, org, type} → auto_judge.py의 {name, affiliation, type}
+        judges = [
+            {
+                "name": j.get("name", "").strip(),
+                "affiliation": j.get("org", "").strip(),
+                "type": j.get("type", "외부"),
+            }
+            for j in judges_raw
+            if j.get("name", "").strip()
+        ]
+
+        # ── 심사위원 ──
+        if judges:
+            print(f"\n[심사위원 입력] {len(judges)}명")
+            if not navigate_to_competition(page, comp_id):
+                competition_no += 1
                 continue
+            try:
+                context.storage_state(path=str(auth_path))
+            except Exception:
+                pass
+            ok = run_one_competition(page, judges_override=judges)
+            if not ok:
+                print("\n❌ 브라우저 연결이 끊어졌습니다. 종료합니다.")
+                break
+        else:
+            print("\n[심사위원 입력] 전달받은 심사위원 없음, 건너뜁니다.")
 
-            print("\n" + "█" * 60)
-            print(f"█ {competition_no}번째 공모 (ID: {comp_id})")
-            print("█" * 60)
-
-            # ── 심사위원 ──
-            if do_judges:
-                if not navigate_to_competition(page, comp_id):
-                    continue
-                try:
-                    context.storage_state(path=str(auth_path))
-                except Exception:
-                    pass
-                ok = run_one_competition(page)
-                if not ok:
-                    print("\n❌ 브라우저 연결이 끊어져서 종료합니다.")
-                    print("   스크립트를 다시 실행해주세요.")
-                    break
-
-            # ── 파일 업로드 ──
-            if do_files:
-                print(f"\n[파일 업로드]")
-                success, msg = upload_files(page, comp_id)
+        # ── 파일 업로드 ──
+        if notice_files_data:
+            print(f"\n[파일 업로드] {len(notice_files_data)}개")
+            tmp_dir = None
+            try:
+                tmp_dir = save_notice_files_to_temp(notice_files_data)
+                success, msg = upload_files(page, comp_id, files_dir_override=tmp_dir)
                 print(f"  {'✅' if success else '❌'} {msg}")
+            finally:
+                if tmp_dir and tmp_dir.exists():
+                    shutil.rmtree(tmp_dir, ignore_errors=True)
+        else:
+            print("\n[파일 업로드] 전달받은 파일 없음, 건너뜁니다.")
 
-            # ── 발주처 ──
-            if do_org:
-                print(f"\n[발주처 입력]")
-                run_organization_input(page, comp_id)
+        # ── 발주처 ──
+        if agency:
+            print(f"\n[발주처 입력]")
+            run_organization_input(page, comp_id, agency_override=agency)
+        else:
+            print("\n[발주처 입력] 전달받은 발주처 없음, 건너뜁니다.")
 
-            competition_no += 1
+        competition_no += 1
 
-        # 종료
-        print("\n>>> 브라우저를 닫으려면 엔터를 누르세요.")
+    try:
+        server.shutdown()
+    except Exception:
+        pass
+
+
+def main():
+    print("=" * 60)
+    print("공모 정보 자동 입력 스크립트")
+    print("=" * 60)
+
+    # ── 실행 방식 선택 ──
+    print("\n실행 방식을 선택하세요:")
+    print("  [1] 터미널 직접 입력  (공모 ID를 직접 입력, 파일에서 정보 읽기)")
+    print("  [2] HTML 도구 연동   (공모결과정리도구.html 에서 버튼으로 자동 실행)")
+    print("─" * 60)
+    while True:
+        run_mode = input(">>> 번호 선택: ").strip()
+        if run_mode in ("1", "2"):
+            break
+        print("  1 또는 2를 입력해주세요.")
+
+    auth_path = SCRIPT_DIR / AUTH_FILE
+
+    with sync_playwright() as p:
+        browser, context, page = _open_browser_and_login(p, auth_path)
         try:
-            input()
-        except Exception:
-            pass
-        try:
-            browser.close()
-        except Exception:
-            pass
+            if run_mode == "1":
+                _run_terminal_mode(page, context, auth_path)
+            else:
+                _run_server_mode(page, context, auth_path)
+        finally:
+            # 종료
+            print("\n>>> 브라우저를 닫으려면 엔터를 누르세요.")
+            try:
+                input()
+            except Exception:
+                pass
+            try:
+                browser.close()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
