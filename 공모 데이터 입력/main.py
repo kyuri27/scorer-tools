@@ -8,13 +8,12 @@
 
 [사용 방법]
   1. 맥_실행.command 더블클릭
-  2. 실행 방식 선택:
-     [1] 터미널 직접 입력  — 공모 ID를 직접 입력해서 공모 정보만 처리
-     [2] HTML 도구 연동   — 공모결과정리도구.html 에서 버튼으로 자동 실행
-  3. 브라우저에서 카카오톡 로그인 (최초 1회)
-  4. HTML 도구에서 원하는 버튼 클릭:
-     - '공모 정보 입력하기' → 심사위원 + 공고파일 + 발주처 자동 입력
-     - '공모 결과 입력하기' → 수상작 + 건축가 + 결과파일 + 불참처리 자동 입력
+  2. 브라우저에서 카카오톡 로그인 (최초 1회)
+  3. 아래 중 원하는 방법으로 실행:
+     - 공모 ID 입력 후 엔터  → 공모 정보 입력 (심사위원 + 공고파일 + 발주처)
+     - HTML 도구에서 버튼 클릭 → 해당 작업 자동 실행
+       ・ '공모 정보 입력하기' → 심사위원 + 공고파일 + 발주처
+       ・ '공모 결과 입력하기' → 수상작 + 건축가 + 결과파일 + 불참처리
 
 [폴더 구조]
   공모 데이터 입력/
@@ -32,7 +31,7 @@
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
-import sys, os, threading, queue as _queue_module
+import sys, os, threading, queue as _queue_module, select as _select
 import json, base64, tempfile, shutil, time, unicodedata
 
 # ============================================================
@@ -190,15 +189,23 @@ def start_local_server() -> HTTPServer:
     return server
 
 
-def _keyboard_thread_func():
+def _wait_for_trigger() -> tuple:
+    """
+    키보드 입력(공모 ID) 또는 HTTP 트리거를 동시에 기다림.
+    어느 쪽이 먼저 도착하든 즉시 반환.
+    반환값: ("keyboard", "6375") 또는 ("info", {...}) 또는 ("result", {...})
+    """
     while True:
+        # HTTP 트리거가 있으면 즉시 반환
         try:
-            line = sys.stdin.readline()
-            if not line:
-                break
-            _trigger_queue.put(("keyboard", line.strip()))
-        except Exception:
-            break
+            return _trigger_queue.get_nowait()
+        except _queue_module.Empty:
+            pass
+        # 300ms 안에 키보드 입력이 있으면 읽어서 반환
+        r, _, _ = _select.select([sys.stdin], [], [], 0.3)
+        if r:
+            line = sys.stdin.readline().strip()
+            return ("keyboard", line)
 
 
 # ============================================================
@@ -1156,102 +1163,70 @@ def _open_browser(p, auth_path: Path):
 # 실행 모드
 # ============================================================
 
-def _run_terminal_mode(page, context, auth_path: Path):
-    """터미널 직접 입력 모드 (공모 정보 입력)"""
-    MODE_LABELS = {
-        "1": "전체  (심사위원 + 공고파일 업로드 + 발주처)",
-        "2": "심사위원만",
-        "3": "공고파일 업로드만",
-        "4": "발주처만",
-    }
-    print("\n어떤 작업을 할까요?")
-    for k, v in MODE_LABELS.items():
-        print(f"  [{k}] {v}")
-    print("─" * 60)
-    while True:
-        mode = input(">>> 번호 선택: ").strip()
-        if mode in MODE_LABELS:
-            break
-        print("  1~4 중 입력해주세요.")
-    print(f"✅ 선택: {MODE_LABELS[mode]}\n")
-
-    do_judges = mode in ("1", "2")
-    do_files  = mode in ("1", "3")
-    do_org    = mode in ("1", "4")
-
-    comp_no = 1
-    while True:
-        print("\n" + "─" * 60)
-        print("공모 ID를 입력하세요.  (종료: q)")
-        print("─" * 60)
-        comp_id = input(">>> 공모 ID: ").strip()
-        if comp_id.lower() == "q":
-            print("\n>>> 종료합니다. 수고하셨습니다! 👋")
-            break
-        if not comp_id.isdigit():
-            print("⚠️  숫자만 입력해주세요.")
-            continue
-
-        print(f"\n{'█' * 60}")
-        print(f"█ {comp_no}번째 공모 (ID: {comp_id})")
-        print("█" * 60)
-
-        if do_judges:
-            print("\n[심사위원 입력]")
-            if navigate_to_competition(page, comp_id):
-                _save_auth(context, auth_path)
-                ok = run_judges_input(page, load_judges_from_file())
-                if not ok:
-                    print("\n❌ 브라우저 연결 끊김. 종료합니다.")
-                    break
-
-        if do_files:
-            print("\n[공고파일 업로드]")
-            ok, msg = upload_notice_files(page, comp_id)
-            print(f"  {'✅' if ok else '❌'} {msg}")
-
-        if do_org:
-            print("\n[발주처 입력]")
-            run_organization_input(page, comp_id)
-
-        comp_no += 1
-
-
-def _run_server_mode(page, context, auth_path: Path):
-    """HTML 도구 연동 모드 — /start-competition(정보) 와 /start(결과) 모두 처리"""
+def _run_combined_mode(page, context, auth_path: Path):
+    """
+    터미널 입력과 HTML 버튼을 동시에 대기.
+    - 공모 ID 입력 후 엔터 → 공모 정보 입력 (심사위원 + 공고파일 + 발주처)
+    - HTML '공모 정보 입력하기' 클릭 → 공모 정보 입력
+    - HTML '공모 결과 입력하기' 클릭 → 공모 결과 입력
+    """
     server = start_local_server()
-    print(f"\n🌐 로컬 서버 시작 (포트 {SERVER_PORT})")
-    print("   공모결과정리도구.html 에서 버튼을 누르면 자동으로 실행됩니다.")
-    print("   ┌ '공모 정보 입력하기' → 심사위원 + 공고파일 + 발주처")
-    print("   └ '공모 결과 입력하기' → 수상작 + 건축가 + 결과파일 + 불참처리")
-    print("   종료: [q] + 엔터\n")
-
-    threading.Thread(target=_keyboard_thread_func, daemon=True).start()
+    print(f"\n🌐 서버 준비 완료 (포트 {SERVER_PORT})")
+    print("   HTML 도구 '공모 정보 입력하기' / '공모 결과 입력하기' 버튼 대기 중\n")
 
     comp_no = 1
     while True:
-        print("⏳ HTML 도구에서 버튼을 기다리는 중...  (종료: q + 엔터)")
-        task_type, data = _trigger_queue.get()
+        print("─" * 60)
+        print("공모 ID 입력 후 엔터  또는  HTML 도구에서 버튼 클릭  (종료: q)")
+        print("─" * 60)
+        print(">>> ", end="", flush=True)
 
+        task_type, data = _wait_for_trigger()
+
+        # ── 키보드 입력 ──
         if task_type == "keyboard":
-            if str(data).lower() == "q":
+            comp_id = str(data)
+            if comp_id.lower() == "q":
                 print("\n>>> 종료합니다. 수고하셨습니다! 👋")
                 break
-            continue
+            if not comp_id.isdigit():
+                if comp_id:
+                    print(f"\n⚠️  숫자만 입력해주세요. (입력값: '{comp_id}')")
+                continue
 
-        comp_id = str(data.get("competition_id", "")).strip()
-        label = "정보 입력" if task_type == "info" else "결과 입력"
-        print(f"\n{'█' * 60}")
-        print(f"█ {comp_no}번째 공모 — {label} (ID: {comp_id})")
-        print("█" * 60)
+            print(f"\n{'█' * 60}")
+            print(f"█ {comp_no}번째 공모 — 정보 입력 (ID: {comp_id})")
+            print("█" * 60)
 
-        try:
-            if task_type == "info":
-                run_info_task(page, context, auth_path, data)
-            else:
-                run_result_task(page, context, auth_path, data)
-        except Exception as e:
-            print(f"❌ 처리 중 예외 발생: {e}")
+            try:
+                if navigate_to_competition(page, comp_id):
+                    _save_auth(context, auth_path)
+                    ok = run_judges_input(page, load_judges_from_file())
+                    if not ok:
+                        print("\n❌ 브라우저 연결 끊김. 종료합니다.")
+                        break
+                print("\n[공고파일 업로드]")
+                ok, msg = upload_notice_files(page, comp_id)
+                print(f"  {'✅' if ok else '❌'} {msg}")
+                print("\n[발주처 입력]")
+                run_organization_input(page, comp_id)
+            except Exception as e:
+                print(f"❌ 처리 중 예외 발생: {e}")
+
+        # ── HTTP 트리거 ──
+        else:
+            comp_id = str(data.get("competition_id", "")).strip()
+            label = "정보 입력" if task_type == "info" else "결과 입력"
+            print(f"\n{'█' * 60}")
+            print(f"█ {comp_no}번째 공모 — {label} (ID: {comp_id})")
+            print("█" * 60)
+            try:
+                if task_type == "info":
+                    run_info_task(page, context, auth_path, data)
+                else:
+                    run_result_task(page, context, auth_path, data)
+            except Exception as e:
+                print(f"❌ 처리 중 예외 발생: {e}")
 
         _save_auth(context, auth_path)
         comp_no += 1
@@ -1271,25 +1246,12 @@ def main():
     print("  공모 데이터 자동 입력  |  스코어러")
     print("=" * 60)
 
-    print("\n실행 방식을 선택하세요:")
-    print("  [1] 터미널 직접 입력  (공모 ID를 직접 입력, 공모 정보만)")
-    print("  [2] HTML 도구 연동   (공모결과정리도구.html 버튼으로 자동 실행)")
-    print("─" * 60)
-    while True:
-        run_mode = input(">>> 번호 선택: ").strip()
-        if run_mode in ("1", "2"):
-            break
-        print("  1 또는 2를 입력해주세요.")
-
     auth_path = SCRIPT_DIR / AUTH_FILE
 
     with sync_playwright() as p:
         browser, context, page = _open_browser(p, auth_path)
         try:
-            if run_mode == "1":
-                _run_terminal_mode(page, context, auth_path)
-            else:
-                _run_server_mode(page, context, auth_path)
+            _run_combined_mode(page, context, auth_path)
         finally:
             print("\n>>> 브라우저를 닫으려면 엔터를 누르세요.")
             try:
