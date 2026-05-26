@@ -31,8 +31,12 @@
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
-import sys, os, threading, queue as _queue_module, select as _select
-import json, base64, tempfile, shutil, time, unicodedata
+import sys, os, threading, queue as _queue_module
+import json, base64, time, unicodedata
+
+# select는 macOS/Linux 전용 (Windows에서는 msvcrt 사용)
+if sys.platform != "win32":
+    import select as _select
 
 # ============================================================
 # 설정값
@@ -199,17 +203,41 @@ def _wait_for_trigger() -> tuple:
     어느 쪽이 먼저 도착하든 즉시 반환.
     반환값: ("keyboard", "6375") 또는 ("info", {...}) 또는 ("result", {...})
     """
-    while True:
-        # HTTP 트리거가 있으면 즉시 반환
-        try:
-            return _trigger_queue.get_nowait()
-        except _queue_module.Empty:
-            pass
-        # 300ms 안에 키보드 입력이 있으면 읽어서 반환
-        r, _, _ = _select.select([sys.stdin], [], [], 0.3)
-        if r:
-            line = sys.stdin.readline().strip()
-            return ("keyboard", line)
+    if sys.platform == "win32":
+        # Windows: msvcrt로 논블로킹 키보드 입력
+        import msvcrt
+        buf = ""
+        while True:
+            try:
+                return _trigger_queue.get_nowait()
+            except _queue_module.Empty:
+                pass
+            if msvcrt.kbhit():
+                ch = msvcrt.getwche()
+                if ch in ('\r', '\n'):
+                    print()
+                    return ("keyboard", buf.strip())
+                elif ch == '\x03':  # Ctrl+C
+                    raise KeyboardInterrupt
+                elif ch == '\x08':  # 백스페이스
+                    if buf:
+                        buf = buf[:-1]
+                        sys.stdout.write('\b \b')
+                        sys.stdout.flush()
+                else:
+                    buf += ch
+            time.sleep(0.05)
+    else:
+        # macOS/Linux: select()
+        while True:
+            try:
+                return _trigger_queue.get_nowait()
+            except _queue_module.Empty:
+                pass
+            r, _, _ = _select.select([sys.stdin], [], [], 0.3)
+            if r:
+                line = sys.stdin.readline().strip()
+                return ("keyboard", line)
 
 
 # ============================================================
