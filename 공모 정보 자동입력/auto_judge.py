@@ -30,6 +30,7 @@ import sys
 # ============================================================
 JUDGES_FILE = "judges.txt"
 AUTH_FILE = "auth_state.json"   # 로그인 세션 저장 파일
+FILES_DIR = "공모 파일"          # 업로드할 파일 폴더명
 
 BROWSER_WIDTH = 1920
 BROWSER_HEIGHT = 1080
@@ -474,6 +475,81 @@ def _print_summary(results: list, all_judges: list):
             print(f"  - [{judge['type']}] {judge['name']} ({judge['affiliation']})")
 
 
+def upload_files(page, comp_id: str) -> tuple[bool, str]:
+    """파일 관리 페이지에 '공모 파일' 폴더의 파일을 업로드"""
+    files_dir = SCRIPT_DIR / FILES_DIR
+
+    # 폴더 없으면 생성 후 안내
+    if not files_dir.exists():
+        files_dir.mkdir()
+        return False, f"'공모 파일' 폴더가 없어서 새로 만들었습니다. 파일을 넣고 다시 시도해주세요.\n   위치: {files_dir}"
+
+    # 업로드할 파일 목록 (숨김 파일 제외)
+    files = sorted([f for f in files_dir.iterdir() if f.is_file() and not f.name.startswith(".")])
+    if not files:
+        return False, f"'공모 파일' 폴더에 파일이 없습니다. ({files_dir})"
+
+    print(f"  업로드할 파일 {len(files)}개:")
+    for f in files:
+        print(f"    - {f.name}")
+
+    # 파일 관리 페이지로 이동
+    url = f"https://scorer.co.kr/admin/file_manage/{comp_id}"
+    print(f"  → {url} 로 이동 중...")
+    try:
+        page.goto(url, wait_until="domcontentloaded", timeout=15000)
+        page.wait_for_timeout(1000)
+    except Exception as e:
+        return False, f"파일 관리 페이지 이동 실패: {e}"
+
+    # 파일 선택
+    try:
+        file_input = page.locator('input[type="file"]')
+        file_input.wait_for(state="attached", timeout=5000)
+        file_input.set_input_files([str(f) for f in files])
+        page.wait_for_timeout(500)
+    except Exception as e:
+        return False, f"파일 선택 실패: {e}"
+
+    # 저장하기 클릭
+    try:
+        save_btn = page.locator('button[type="submit"]')
+        save_btn.click()
+        page.wait_for_timeout(2000)  # 업로드 완료 대기
+    except Exception as e:
+        return False, f"저장하기 버튼 클릭 실패: {e}"
+
+    return True, f"{len(files)}개 파일 업로드 완료"
+
+
+def navigate_to_competition(page, comp_id: str) -> bool:
+    """공모 ID로 심사위원 관리 페이지 이동. 로그인 필요 시 안내 후 재시도."""
+    url = f"https://scorer.co.kr/admin/competition/{comp_id}/jury_manage"
+    print(f">>> {url} 로 이동 중...")
+    try:
+        page.goto(url, wait_until="domcontentloaded", timeout=15000)
+        page.wait_for_timeout(1000)
+    except Exception as e:
+        print(f"❌ 페이지 이동 실패: {e}")
+        return False
+
+    # 로그인 페이지로 리다이렉트됐는지 확인
+    if "login" in page.url or "signin" in page.url or "auth" in page.url:
+        print()
+        print("⚠️  로그인 세션이 만료되었습니다.")
+        print(">>> 브라우저에서 카카오톡으로 다시 로그인해주세요.")
+        print(">>> 로그인 완료 후 엔터를 눌러주세요.")
+        input(">>> [엔터] ")
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=15000)
+            page.wait_for_timeout(1000)
+        except Exception as e:
+            print(f"❌ 페이지 이동 실패: {e}")
+            return False
+
+    return True
+
+
 def main():
     print("=" * 60)
     print("심사위원 자동 입력 스크립트")
@@ -488,81 +564,90 @@ def main():
             args=[f'--window-size={BROWSER_WIDTH},{BROWSER_HEIGHT}']
         )
 
-        # 저장된 세션이 있으면 불러오기
         if has_saved_session:
             print(f"💾 저장된 로그인 세션을 발견했습니다. 불러옵니다.")
-            print(f"   (로그인이 풀려있으면 브라우저에서 다시 로그인하면 됩니다)")
             context = browser.new_context(
                 no_viewport=True,
                 storage_state=str(auth_path)
             )
         else:
-            context = browser.new_context(
-                no_viewport=True
-            )
+            context = browser.new_context(no_viewport=True)
 
         page = context.new_page()
         auto_accept_dialogs(page)
 
-        # ── 최초 안내 ──
         print()
         print(">>> 브라우저가 열렸습니다.")
         print(">>> ⚠️  지금 열린 이 브라우저 창에서만 작업하세요!")
         print(">>>    (다른 크롬 창 사용 금지, 새 탭 열지 말기, 창 닫지 말기)")
-        print(">>>")
-        if has_saved_session:
-            print(">>> 1) 사이트가 이미 로그인되어 있는지 확인하세요")
-            print(">>>    (로그인이 풀렸으면 카톡으로 다시 로그인)")
-        else:
-            print(">>> 1) 사이트 접속 → 카톡으로 로그인")
-            print(">>>    (이번 한 번만 로그인하면 다음부터는 자동입니다)")
-        print(">>> 2) 첫 공모의 '심사위원 관리하기' 페이지로 이동")
-        print(">>> 3) 준비되면 이 터미널에서 엔터를 눌러주세요")
-        input(">>> [엔터] ")
 
-        # 로그인 세션 저장 (다음 실행 때 재사용)
-        try:
-            context.storage_state(path=str(auth_path))
-            print(f"💾 로그인 세션을 '{AUTH_FILE}'에 저장했습니다.")
-            print(f"   다음 실행부터는 로그인이 유지됩니다.")
-        except Exception as e:
-            print(f"⚠️  세션 저장 실패 (무시하고 계속): {e}")
+        # 저장된 세션 없으면 최초 로그인 안내
+        if not has_saved_session:
+            print()
+            print(">>> 카카오톡으로 로그인이 필요합니다.")
+            print(">>> 브라우저에서 로그인 완료 후 엔터를 눌러주세요.")
+            input(">>> [엔터] ")
+            try:
+                context.storage_state(path=str(auth_path))
+                print(f"💾 로그인 세션을 저장했습니다. 다음부터는 자동 로그인됩니다.")
+            except Exception as e:
+                print(f"⚠️  세션 저장 실패 (무시하고 계속): {e}")
 
         # ── 반복 루프: 공모를 계속 처리 ──
         competition_no = 1
         while True:
+            print("\n" + "─" * 60)
+            print(f"공모 ID를 입력하세요.")
+            print(f"  예) 6374  →  scorer.co.kr/admin/competition/6374/jury_manage")
+            print(f"  [q + 엔터] 종료")
+            print("─" * 60)
+            comp_id = input(">>> 공모 ID: ").strip()
+
+            if comp_id.lower() == "q":
+                print("\n>>> 종료합니다. 수고하셨습니다! 👋")
+                break
+
+            if not comp_id.isdigit():
+                print("⚠️  숫자만 입력해주세요.")
+                continue
+
+            # 페이지 이동
+            if not navigate_to_competition(page, comp_id):
+                continue
+
+            # 세션 저장 (로그인 후 갱신)
+            try:
+                context.storage_state(path=str(auth_path))
+            except Exception:
+                pass
+
             print("\n" + "█" * 60)
-            print(f"█ {competition_no}번째 공모 입력 시작")
+            print(f"█ {competition_no}번째 공모 (ID: {comp_id}) 입력 시작")
             print("█" * 60)
 
             ok = run_one_competition(page)
 
             if not ok:
-                # 브라우저 연결이 끊어진 경우
                 print("\n❌ 브라우저 연결이 끊어져서 종료합니다.")
                 print("   스크립트를 다시 실행해주세요.")
                 print("   (로그인 세션은 저장되어 있어서 카톡 인증은 안 해도 됩니다)")
                 break
 
-            # ── 다음 작업 메뉴 ──
+            # ── 파일 업로드 ──
             print("\n" + "─" * 60)
-            print("다음에 무엇을 할까요?")
-            print("  [엔터] 다음 공모 입력하기")
-            print("         → 브라우저에서 다음 공모 페이지로 이동하고,")
-            print("           judges.txt 파일을 수정해서 저장한 뒤 엔터")
-            print("  [q + 엔터] 종료")
+            print("파일 업로드를 진행할까요?")
+            print(f"  [엔터]  → '공모 파일' 폴더의 파일을 업로드")
+            print(f"  [n]     → 건너뛰기")
             print("─" * 60)
-            choice = input(">>> 선택: ").strip().lower()
+            upload_choice = input(">>> 선택: ").strip().lower()
 
-            if choice == "q":
-                print("\n>>> 종료합니다. 수고하셨습니다! 👋")
-                break
-
-            # 세션 갱신 저장 (로그인 상태 최신화)
-            try:
-                context.storage_state(path=str(auth_path))
-            except Exception:
-                pass
+            if upload_choice != "n":
+                print(f"\n[파일 업로드] 공모 ID: {comp_id}")
+                success, msg = upload_files(page, comp_id)
+                if success:
+                    print(f"  ✅ {msg}")
+                else:
+                    print(f"  ❌ {msg}")
 
             competition_no += 1
 

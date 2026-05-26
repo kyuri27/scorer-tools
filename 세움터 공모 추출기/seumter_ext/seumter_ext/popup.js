@@ -2,27 +2,31 @@ let extractedData = null;
 let cachedUrl = null;
 
 // 공모명 정제: 접미사 제거 + 건축행위 괄호 처리
+// buildAction: 세움터 '건축행위' 필드값 (예: "리모델링", "증축"). 있으면 우선 사용.
 // - 신축은 기본값이라 제거만
 // - 그 외 건축행위(증축/개축/리모델링 등)는 이름 뒤 괄호로 이동
-function cleanCompetitionName(raw) {
+function cleanCompetitionName(raw, buildAction = '') {
   if (!raw) return '';
-  // 긴 키워드 먼저 (부분 매칭 방지)
   const kwAll = ['리모델링', '대수선', '용도변경', '재건축', '증축', '개축', '재축', '이전', '철거', '신축'];
-  const found = [];
   let name = raw;
+  // 이름에서 건축행위 키워드 제거 (필드 우선 여부와 관계없이 항상 정리)
   for (const kw of kwAll) {
-    // 키워드 + 선택적 '사업'/'공사' 제거
-    if (name.includes(kw)) {
-      found.push(kw);
-      name = name.replace(new RegExp(kw + '(?:사업|공사)?', 'g'), ' ');
-    }
+    name = name.replace(new RegExp(kw + '(?:사업|공사)?', 'g'), ' ');
   }
-  // 접미사 제거
-  name = name.replace(/(설계공모|건축설계공모|제안공모|공모|사업)$/, '');
+  // 접미사 제거 (건립 포함)
+  name = name.replace(/(설계공모|건축설계공모|제안공모|공모|건립사업|사업|건립)$/, '');
   // 공백/구두점 정리
   name = name.replace(/\s+/g, ' ').trim().replace(/[\s·,]+$/, '').trim();
-  // 신축 외 건축행위 → 괄호 추가
-  const extras = found.filter(k => k !== '신축');
+
+  // 건축행위 결정: '건축행위' 필드 우선, 없으면 원본 이름에서 탐색
+  let extras;
+  if (buildAction && buildAction.trim()) {
+    extras = buildAction.split(/[,，、·\/\s]+/).map(s => s.trim()).filter(s => s && s !== '신축');
+  } else {
+    const found = kwAll.filter(kw => raw.includes(kw) && kw !== '신축');
+    extras = found;
+  }
+
   if (extras.length > 0) name += `(${extras.join(', ')})`;
   return name;
 }

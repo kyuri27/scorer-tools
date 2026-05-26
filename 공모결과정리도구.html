@@ -195,6 +195,15 @@
     </div>
     <div id="seumterStatus"></div>
     <div style="margin-top:12px; padding-top:12px; border-top:1px solid #e0f2fe;">
+      <div style="font-size:12px; font-weight:600; color:#374151; margin-bottom:8px;">✏️ 공모명 직접 입력 <span style="font-weight:400; color:#6b7280;">— JSON보다 우선 적용, 파일명에도 반영됨</span></div>
+      <input type="text" id="manualCompetitionName" placeholder="예: 광화문광장 복합문화시설" style="font-size:13px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; width:100%; box-sizing:border-box;">
+    </div>
+    <div style="margin-top:12px; padding-top:12px; border-top:1px solid #e0f2fe;">
+      <div style="font-size:12px; font-weight:600; color:#374151; margin-bottom:6px;">👥 심사위원 직접 입력 <span style="font-weight:400; color:#6b7280;">— JSON보다 우선 적용</span></div>
+      <textarea id="manualJudgesInput" oninput="previewManualJudges()" placeholder="형식 1 (줄글):&#10;심재익: 심건축사사무소&#10;이정욱: 더시선 건축사사무소&#10;예비1 선형종: ㈜한길종합건축사사무소&#10;&#10;형식 2 (탭구분):&#10;심사위원	심재익	심건축사사무소&#10;예비위원	선형종	㈜한길종합건축사사무소" style="min-height:90px; font-size:12px; width:100%; box-sizing:border-box; font-family:monospace;"></textarea>
+      <div id="manualJudgesPreview"></div>
+    </div>
+    <div style="margin-top:12px; padding-top:12px; border-top:1px solid #e0f2fe;">
       <div style="font-size:12px; font-weight:600; color:#374151; margin-bottom:8px;">📅 날짜 직접 입력 <span style="font-weight:400; color:#6b7280;">— JSON보다 우선 적용, JSON 없을 때도 사용 가능</span></div>
       <div style="display:flex; gap:12px; flex-wrap:wrap;">
         <label style="font-size:12px; color:#374151; display:flex; flex-direction:column; gap:4px;">
@@ -1150,6 +1159,93 @@ function applyManualDates(data) {
   if (announceVal) data.announceDate = announceVal;
 }
 
+// ───── 심사위원 직접 입력 파싱 ─────
+function parseJudgesText(text) {
+  if (!text || !text.trim()) return null;
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+  const judges = [];
+  let currentType = '외부';
+
+  for (const line of lines) {
+    // 형식 2: 탭 구분 (심사위원/예비위원\t이름\t소속)
+    if (line.includes('\t')) {
+      const parts = line.split('\t').map(p => p.trim());
+      if (parts.length >= 2) {
+        const typeStr = parts[0];
+        const name = parts[1];
+        const org = parts[2] || '';
+        const type = typeStr.includes('예비') ? '예비' : '외부';
+        if (name) judges.push({ type, name, org });
+      }
+      continue;
+    }
+
+    // 섹션 헤더 감지 (예: "2. 예비 심사위원", "예비위원" 등 — 콜론 없는 줄)
+    if (/예비.{0,6}심사위원|예비위원/.test(line) && !/[：:]/.test(line)) {
+      currentType = '예비'; continue;
+    }
+    if (/^(외부\s*)?심사위원/.test(line) && !/[：:]/.test(line)) {
+      currentType = '외부'; continue;
+    }
+
+    // 형식 1: 콜론 구분 — "예비1 이름: 소속" 또는 "이름: 소속"
+    let type = currentType;
+    let processedLine = line;
+    const prefixMatch = line.match(/^예비\d*\s+/);
+    if (prefixMatch) {
+      type = '예비';
+      processedLine = line.slice(prefixMatch[0].length);
+    }
+
+    const colonMatch = processedLine.match(/^(.+?)[：:]\s*(.*)$/);
+    if (colonMatch) {
+      const name = colonMatch[1].trim();
+      const org = colonMatch[2].trim();
+      // 이름은 2~8자 (한국어 이름 범위), 설명문 걸러내기
+      if (name.length >= 2 && name.length <= 8 && !/^\d/.test(name)) {
+        judges.push({ type, name, org });
+      }
+    }
+  }
+
+  return judges.length > 0 ? judges : null;
+}
+
+function getManualJudges() {
+  const text = document.getElementById('manualJudgesInput')?.value?.trim();
+  return parseJudgesText(text);
+}
+
+function previewManualJudges() {
+  const judges = getManualJudges();
+  const preview = document.getElementById('manualJudgesPreview');
+  if (!preview) return;
+  if (!judges || judges.length === 0) {
+    preview.innerHTML = '';
+    return;
+  }
+  const outer = judges.filter(j => j.type === '외부').length;
+  const reserve = judges.filter(j => j.type === '예비').length;
+  let html = `<div style="margin-top:8px; font-size:11px; color:#0369a1; margin-bottom:4px;">✅ ${judges.length}명 인식됨 (외부 ${outer}명, 예비 ${reserve}명)</div>`;
+  html += `<table style="width:100%;border-collapse:collapse;font-size:12px;">`;
+  html += `<thead><tr style="background:#f0f9ff;"><th style="padding:3px 8px;text-align:left;font-weight:600;">구분</th><th style="padding:3px 8px;text-align:left;font-weight:600;">성명</th><th style="padding:3px 8px;text-align:left;font-weight:600;">소속</th></tr></thead><tbody>`;
+  judges.forEach(j => {
+    const typePill = j.type === '예비'
+      ? `<span class="pill pill-reserve">예비</span>`
+      : `<span class="pill" style="background:#dbeafe;color:#1e40af;">외부</span>`;
+    html += `<tr><td style="padding:3px 8px;">${typePill}</td><td style="padding:3px 8px;">${j.name}</td><td style="padding:3px 8px;color:#6b7280;">${j.org || '-'}</td></tr>`;
+  });
+  html += `</tbody></table>`;
+  preview.innerHTML = html;
+}
+
+// 수동 입력 공모명 우선, 없으면 data의 공모명 사용
+function getCompetitionName(data) {
+  const manual = document.getElementById('manualCompetitionName')?.value?.trim();
+  if (manual) return manual;
+  return data?.competitionName || '';
+}
+
 function cleanCompetitionName(raw) {
   if (!raw) return raw;
 
@@ -1168,6 +1264,8 @@ function cleanCompetitionName(raw) {
       s = s.replace(new RegExp(mod, 'g'), '');
     }
   }
+  // 모디파이어 제거 후 남은 빈 괄호 정리
+  s = s.replace(/\(\s*\)/g, '').trim();
 
   // 접미사 반복 제거 (중첩된 경우 대비)
   let prev;
@@ -1195,24 +1293,21 @@ function judgeStatusPill(status) {
   return `<span class="pill pill-attended">참석</span>`;
 }
 
-function toggleJudgeStatus(name, idx) {
+function toggleJudgeStatus(btn, name, originalStatus) {
   if (!window._judgeStatusOverrides) window._judgeStatusOverrides = {};
-  const judge = (window._judgesData || []).find(j => j.name === name);
-  const original = judge ? judge.status : '참석';
-  const current  = window._judgeStatusOverrides[name] ?? original;
-
-  // 참석/위원장 ↔ 불참 토글 (위원장 직위는 유지)
-  const next = (current === '불참') ? original : '불참';
+  const current = window._judgeStatusOverrides[name] ?? originalStatus;
+  // 불참이면 → 참석(위원장이면 위원장), 아니면 → 불참
+  const nonAbsent = (originalStatus === '불참') ? '참석' : originalStatus;
+  const next = (current === '불참') ? nonAbsent : '불참';
   window._judgeStatusOverrides[name] = next;
-
-  // 버튼은 그대로 두고 pill 스팬만 교체
-  const pill = document.getElementById(`judge-pill-${idx}`);
-  if (pill) pill.outerHTML = `<span id="judge-pill-${idx}">${judgeStatusPill(next)}</span>`;
+  const changed = (next !== originalStatus);
+  btn.innerHTML = judgeStatusPill(next) + (changed ? ' <span style="color:#f59e0b;font-size:11px;" title="수동 변경됨">✏️</span>' : '');
 }
 
 // ───── 결과 렌더링 ─────
 function renderSummary(s) {
-  const rawName = s.buildType ? `${s.competitionName}(${s.buildType})` : s.competitionName;
+  const baseName = getCompetitionName(s) || s.competitionName || '';
+  const rawName = s.buildType ? `${baseName}(${s.buildType})` : baseName;
   const fullName = cleanCompetitionName(rawName);
   let html = `<h3 style="margin-top:0;">${fullName}</h3>`;
 
@@ -1223,7 +1318,7 @@ function renderSummary(s) {
   if (s.announceDate) html += `<li><b>당선작 발표일</b>: ${s.announceDate}</li>`;
   html += `</ul>`;
 
-  const seumterJudges = s.judges_planned || [];
+  const seumterJudges = getManualJudges() || s.judges_planned || [];
   const pdfAttended = s.judges_attended || [];
 
   // PDF 이름을 세움터 이름으로 정규화
@@ -1261,7 +1356,8 @@ function renderSummary(s) {
     html += `<table class="result-table"><thead><tr><th>구분</th><th>성명</th><th>소속</th><th>상태</th></tr></thead><tbody>`;
     judges.forEach((j, idx) => {
       const curStatus = window._judgeStatusOverrides[j.name] ?? j.status;
-      const pill = judgeStatusPill(curStatus);
+      const changed = (curStatus !== j.status);
+      const pillHtml = judgeStatusPill(curStatus) + (changed ? ' <span style="color:#f59e0b;font-size:11px;" title="수동 변경됨">✏️</span>' : '');
       const nameDisplay = j.pdfNameDiff
         ? `${j.name} <span style="color:#6b7280;font-size:11px;">(pdf: ${j.pdfNameDiff})</span>`
         : j.name;
@@ -1272,15 +1368,16 @@ function renderSummary(s) {
         <td>${typePill}</td>
         <td>${nameDisplay}</td>
         <td>${j.org || '-'}</td>
-        <td id="judge-status-${idx}">
-          <button onclick="toggleJudgeStatus('${j.name.replace(/'/g, "\\'")}', ${idx})"
+        <td>
+          <button onclick="toggleJudgeStatus(this, '${j.name.replace(/'/g, "\\'")}', '${j.status}')"
             style="background:none;border:none;padding:0;cursor:pointer;" title="클릭해서 참석/불참 변경">
-            ${pill}
+            ${pillHtml}
           </button>
         </td>
       </tr>`;
     });
     html += `</tbody></table>`;
+    html += `<button onclick="downloadJudgesTxt()" style="margin-top:8px; background:#0891b2; padding:8px 16px; font-size:13px;">👥 심사위원 텍스트 다운로드</button>`;
   }
 
   if (s.awards && s.awards.length) {
@@ -1381,6 +1478,43 @@ async function downloadAwardsTxt() {
   URL.revokeObjectURL(url);
 }
 
+// ───── 심사위원 목록 텍스트 다운로드 ─────
+let _judgesTxtHandle = null;
+
+async function downloadJudgesTxt() {
+  const judges = window._judgesData;
+  if (!judges || judges.length === 0) { alert('심사위원 정보가 없습니다.'); return; }
+
+  const lines = judges.map(j => {
+    const status = (window._judgeStatusOverrides || {})[j.name] ?? j.status;
+    return [j.type || '외부', j.name, j.org || '', status].join(', ');
+  });
+  const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+
+  if (window.showSaveFilePicker) {
+    try {
+      if (!_judgesTxtHandle) {
+        _judgesTxtHandle = await window.showSaveFilePicker({
+          suggestedName: 'judges.txt',
+          types: [{ description: '텍스트 파일', accept: { 'text/plain': ['.txt'] } }],
+        });
+      }
+      const writable = await _judgesTxtHandle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return;
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+      _judgesTxtHandle = null;
+    }
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'judges.txt';
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
 // ───── 입상작 자동 입력 연동 (로컬 HTTP 서버 방식) ─────
 const AWARD_INPUT_PORT = 8765;
 
@@ -1458,10 +1592,12 @@ async function runAwardInput() {
   const uploadFiles = window._processedUploadFiles || [];
 
   // 심사위원 최종 참석 현황 (수동 변경 반영)
-  const judgesAttended = (window._judgesData || [])
-    .map(j => ({ ...j, status: (window._judgeStatusOverrides || {})[j.name] ?? j.status }))
-    .filter(j => j.status !== '불참')
-    .map(j => j.name);
+  const judges = (window._judgesData || []).map(j => ({
+    name:   j.name,
+    org:    j.org  || '',
+    type:   j.type || '외부',
+    status: (window._judgeStatusOverrides || {})[j.name] ?? j.status,
+  }));
 
   try {
     const resp = await fetch(`http://localhost:${AWARD_INPUT_PORT}/start`, {
@@ -1472,7 +1608,7 @@ async function runAwardInput() {
         awards_txt: buildAwardsTxtContent(data),
         images,
         upload_files: uploadFiles,
-        judges_attended: judgesAttended,
+        judges,
       }),
     });
     if (resp.ok) {
@@ -1500,7 +1636,7 @@ async function downloadAwardImagesZip() {
   const data = window._currentData;
   if (!data || !data.awards) return;
 
-  const compName = cleanCompetitionName(data.competitionName || '공모').replace(/\s+/g, '_');
+  const compName = cleanCompetitionName(getCompetitionName(data) || '공모').replace(/\s+/g, '_');
   const dateStr = formatDateForFile(data.announceDate);
   const datePart = dateStr ? `_${dateStr}` : '';
 
@@ -1657,7 +1793,7 @@ function findFileByName(fileName) {
 }
 
 async function renderDownloads(data) {
-  const compName = cleanCompetitionName(data.competitionName || '');
+  const compName = cleanCompetitionName(getCompetitionName(data) || '');
   const noticeDateStr = formatDateForFile(data.noticeDate);
   const noticeDatePart = noticeDateStr ? `_${noticeDateStr}` : '';
   const resultDateStr = formatDateForFile(data.announceDate);
@@ -1844,7 +1980,7 @@ async function renderDownloads(data) {
         const buf = await resp.arrayBuffer();
         return { name: r.filename, data: new Uint8Array(buf) };
       }));
-      const compName = cleanCompetitionName(data.competitionName || '공모').replace(/\s+/g, '_');
+      const compName = cleanCompetitionName(getCompetitionName(data) || '공모').replace(/\s+/g, '_');
       const zipBytes = buildZip(zipFiles);
       const blob = new Blob([zipBytes], { type: 'application/zip' });
       const url = URL.createObjectURL(blob);
