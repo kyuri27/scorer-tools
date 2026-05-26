@@ -605,6 +605,19 @@ def _load_org_from_file() -> str:
     return ""
 
 
+def _get_uploaded_filenames(page) -> set:
+    """파일 관리 페이지에 이미 업로드된 파일명 목록 반환"""
+    try:
+        names = page.evaluate("""
+            () => Array.from(document.querySelectorAll('table tbody tr td'))
+                       .map(td => td.innerText.trim())
+                       .filter(t => /\\.[a-zA-Z]{2,5}$/.test(t))
+        """)
+        return {n for n in names if n}
+    except Exception:
+        return set()
+
+
 def upload_notice_files(page, comp_id: str, files_dir_override: Path = None) -> tuple:
     """공고파일 업로드 (공모 파일 폴더 또는 HTML에서 받은 임시 폴더)"""
     files_dir = files_dir_override or (SCRIPT_DIR / NOTICE_FILES_DIR)
@@ -619,10 +632,6 @@ def upload_notice_files(page, comp_id: str, files_dir_override: Path = None) -> 
     if not files:
         return False, "업로드할 파일 없음"
 
-    print(f"  업로드할 공고파일 {len(files)}개:")
-    for f in files:
-        print(f"    - {f.name}")
-
     url = f"https://scorer.co.kr/admin/file_manage/{comp_id}"
     print(f"  → {url} 이동 중...")
     try:
@@ -631,10 +640,25 @@ def upload_notice_files(page, comp_id: str, files_dir_override: Path = None) -> 
     except Exception as e:
         return False, f"이동 실패: {e}"
 
+    # 이미 업로드된 파일 확인 후 중복 제거
+    existing = _get_uploaded_filenames(page)
+    new_files = [f for f in files if f.name not in existing]
+
+    if existing:
+        skipped = [f.name for f in files if f.name in existing]
+        if skipped:
+            print(f"  ⏭  이미 업로드됨 ({len(skipped)}개): {', '.join(skipped)}")
+    if not new_files:
+        return True, "모든 파일이 이미 업로드되어 있습니다."
+
+    print(f"  업로드할 공고파일 {len(new_files)}개:")
+    for f in new_files:
+        print(f"    - {f.name}")
+
     try:
         fi = page.locator('input[type="file"]')
         fi.wait_for(state="attached", timeout=5000)
-        fi.set_input_files([str(f) for f in files])
+        fi.set_input_files([str(f) for f in new_files])
         page.wait_for_timeout(500)
     except Exception as e:
         return False, f"파일 선택 실패: {e}"
@@ -645,7 +669,7 @@ def upload_notice_files(page, comp_id: str, files_dir_override: Path = None) -> 
     except Exception as e:
         return False, f"저장 실패: {e}"
 
-    return True, f"{len(files)}개 파일 업로드 완료"
+    return True, f"{len(new_files)}개 파일 업로드 완료"
 
 
 def run_info_task(page, context, auth_path: Path, data: dict):
@@ -904,9 +928,8 @@ def upload_result_files(page, contest_id: str):
         print("  ℹ️  '결과 파일' 폴더 없음 → 건너뜁니다.")
         return
 
-    files = [str(UPLOAD_DIR / f) for f in os.listdir(UPLOAD_DIR)
-             if not nfc(f).startswith(".")]
-    if not files:
+    all_files = [f for f in os.listdir(UPLOAD_DIR) if not nfc(f).startswith(".")]
+    if not all_files:
         print("  ⚠️ '결과 파일' 폴더 비어있음 → 건너뜁니다.")
         return
 
@@ -914,14 +937,27 @@ def upload_result_files(page, contest_id: str):
     page.goto(url)
     page.wait_for_load_state("load", timeout=15000)
 
-    page.locator("input[type='file']").first.set_input_files(files)
+    # 이미 업로드된 파일 확인 후 중복 제거
+    existing = _get_uploaded_filenames(page)
+    new_files = [f for f in all_files if f not in existing]
+
+    if existing:
+        skipped = [f for f in all_files if f in existing]
+        if skipped:
+            print(f"  ⏭  이미 업로드됨 ({len(skipped)}개): {', '.join(skipped)}")
+    if not new_files:
+        print("  ✅ 모든 파일이 이미 업로드되어 있습니다.")
+        return
+
+    file_paths = [str(UPLOAD_DIR / f) for f in new_files]
+    page.locator("input[type='file']").first.set_input_files(file_paths)
     time.sleep(0.5)
 
     btn = page.get_by_role("button", name="저장하기")
     btn.wait_for(state="visible", timeout=5000)
     btn.click()
     page.wait_for_load_state("load", timeout=15000)
-    print(f"  ✅ {len(files)}개 파일 업로드 완료")
+    print(f"  ✅ {len(new_files)}개 파일 업로드 완료")
 
     print("  심사결과 파일 여부 확인 중...")
     if _ensure_judging_toggles_on(page):
