@@ -259,6 +259,10 @@ function checkPw() {
       <div id="manualJudgesPreview"></div>
     </div>
     <div style="margin-top:12px; padding-top:12px; border-top:1px solid #e0f2fe;">
+      <div style="font-size:12px; font-weight:600; color:#374151; margin-bottom:8px;">🏢 발주처 직접 입력 <span style="font-weight:400; color:#6b7280;">— JSON보다 우선 적용</span></div>
+      <input type="text" id="manualAgency" placeholder="예: 효자중학교, 서울특별시" style="font-size:13px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; width:100%; box-sizing:border-box;">
+    </div>
+    <div style="margin-top:12px; padding-top:12px; border-top:1px solid #e0f2fe;">
       <div style="font-size:12px; font-weight:600; color:#374151; margin-bottom:8px;">📅 날짜 직접 입력 <span style="font-weight:400; color:#6b7280;">— JSON보다 우선 적용, JSON 없을 때도 사용 가능</span></div>
       <div style="display:flex; gap:12px; flex-wrap:wrap;">
         <label style="font-size:12px; color:#374151; display:flex; flex-direction:column; gap:4px;">
@@ -715,6 +719,8 @@ function resetAll() {
   document.getElementById('seumterStatus').innerHTML = '';
   document.getElementById('manualNoticeDate').value = '';
   document.getElementById('manualAnnounceDate').value = '';
+  const agencyEl = document.getElementById('manualAgency');
+  if (agencyEl) agencyEl.value = '';
   const compIdEl = document.getElementById('competitionIdInput');
   if (compIdEl) compIdEl.value = '';
   _awardsTxtHandle = null;
@@ -1209,10 +1215,12 @@ function normalizePdfNames(pdfNames, seumterJudges) {
 // 접미사(설계공모, 공모, 사업 등) 제거, 리모델링·개축·증축 등은 괄호로 이동
 // 수동 입력 날짜를 data에 우선 적용
 function applyManualDates(data) {
-  const noticeVal  = document.getElementById('manualNoticeDate')?.value;
+  const noticeVal   = document.getElementById('manualNoticeDate')?.value;
   const announceVal = document.getElementById('manualAnnounceDate')?.value;
+  const agencyVal   = document.getElementById('manualAgency')?.value?.trim();
   if (noticeVal)   data.noticeDate   = noticeVal;
   if (announceVal) data.announceDate = announceVal;
+  if (agencyVal)   data.agency       = agencyVal;
 }
 
 // ───── 심사위원 직접 입력 파싱 ─────
@@ -1907,12 +1915,16 @@ async function renderDownloads(data) {
   // 키워드가 있으면 그것을 prefix로, 없으면 기존 방식(첫 '_' 앞)
   const NOTICE_KEYWORDS = ['과업지시서', '지침서', '공고문', '제안서'];
   function extractNoticePrefix(nameNoExt) {
+    // 괄호 내용 제거: (효자중), (서울), [서식] 같은 태그 처리
+    const cleaned = nameNoExt.replace(/\([^)]*\)/g, '').trim();
     const seosik = nameNoExt.includes('[서식]') ? '[서식]' : (nameNoExt.includes('서식') ? '[서식]' : '');
     // 공고서 → 공고문으로 통일
-    if (nameNoExt.includes('공고서') || nameNoExt.includes('공고문')) return seosik + '공고문';
+    if (cleaned.includes('공고서') || cleaned.includes('공고문')) return seosik + '공고문';
     for (const kw of NOTICE_KEYWORDS) {
-      if (nameNoExt.includes(kw)) return seosik + kw;
+      if (cleaned.includes(kw)) return seosik + kw;
     }
+    // 키워드 없으면 괄호 제거된 이름 반환 (원본에 괄호가 있었을 때만)
+    if (cleaned !== nameNoExt) return (seosik + cleaned.replace(/[+＋]\s*$/, '').trim()) || null;
     return seosik || null;
   }
 
