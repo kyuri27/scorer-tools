@@ -267,11 +267,11 @@ function checkPw() {
       <div style="display:flex; gap:12px; flex-wrap:wrap;">
         <label style="font-size:12px; color:#374151; display:flex; flex-direction:column; gap:4px;">
           공고일시
-          <input type="date" id="manualNoticeDate" style="font-size:13px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px;">
+          <input type="text" id="manualNoticeDate" inputmode="numeric" maxlength="10" placeholder="YYYY.MM.DD" oninput="autoFormatDate(this)" style="font-size:13px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; width:120px; letter-spacing:1px;">
         </label>
         <label style="font-size:12px; color:#374151; display:flex; flex-direction:column; gap:4px;">
           당선작 발표일
-          <input type="date" id="manualAnnounceDate" style="font-size:13px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px;">
+          <input type="text" id="manualAnnounceDate" inputmode="numeric" maxlength="10" placeholder="YYYY.MM.DD" oninput="autoFormatDate(this)" style="font-size:13px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; width:120px; letter-spacing:1px;">
         </label>
       </div>
     </div>
@@ -1214,9 +1214,30 @@ function normalizePdfNames(pdfNames, seumterJudges) {
 // ───── 공모명 정제 ─────
 // 접미사(설계공모, 공모, 사업 등) 제거, 리모델링·개축·증축 등은 괄호로 이동
 // 수동 입력 날짜를 data에 우선 적용
+// ───── 날짜 텍스트 입력 자동 포맷팅 (YYYYMMDD → YYYY.MM.DD) ─────
+function autoFormatDate(el) {
+  const oldVal = el.value;
+  const oldPos = el.selectionStart;
+  const digits = oldVal.replace(/\D/g, '').slice(0, 8);
+  let out = digits;
+  if (digits.length > 6)      out = digits.slice(0,4) + '.' + digits.slice(4,6) + '.' + digits.slice(6);
+  else if (digits.length > 4) out = digits.slice(0,4) + '.' + digits.slice(4);
+  el.value = out;
+  // 커서 위치 보정 (점 삽입으로 밀린 만큼 보정)
+  const diff = out.length - oldVal.length;
+  el.selectionStart = el.selectionEnd = Math.max(0, oldPos + diff);
+}
+
+function parseDateInput(val) {
+  if (!val) return '';
+  const d = val.replace(/\D/g, '');
+  if (d.length === 8) return `${d.slice(0,4)}-${d.slice(4,6)}-${d.slice(6,8)}`;
+  return '';
+}
+
 function applyManualDates(data) {
-  const noticeVal   = document.getElementById('manualNoticeDate')?.value;
-  const announceVal = document.getElementById('manualAnnounceDate')?.value;
+  const noticeVal   = parseDateInput(document.getElementById('manualNoticeDate')?.value);
+  const announceVal = parseDateInput(document.getElementById('manualAnnounceDate')?.value);
   const agencyVal   = document.getElementById('manualAgency')?.value?.trim();
   if (noticeVal)   data.noticeDate   = noticeVal;
   if (announceVal) data.announceDate = announceVal;
