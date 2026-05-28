@@ -255,7 +255,7 @@ function checkPw() {
     </div>
     <div style="margin-top:12px; padding-top:12px; border-top:1px solid #e0f2fe;">
       <div style="font-size:12px; font-weight:600; color:#374151; margin-bottom:6px;">👥 심사위원 직접 입력 <span style="font-weight:400; color:#6b7280;">— JSON보다 우선 적용</span></div>
-      <textarea id="manualJudgesInput" oninput="previewManualJudges()" placeholder="형식 1 (줄글):&#10;심재익: 심건축사사무소&#10;이정욱: 더시선 건축사사무소&#10;예비1 선형종: ㈜한길종합건축사사무소&#10;&#10;형식 2 (탭구분):&#10;심사위원	심재익	심건축사사무소&#10;예비위원	선형종	㈜한길종합건축사사무소" style="min-height:90px; font-size:12px; width:100%; box-sizing:border-box; font-family:monospace;"></textarea>
+      <textarea id="manualJudgesInput" oninput="previewManualJudges()" placeholder="형식 1 (콜론):&#10;심재익: 심건축사사무소&#10;이정욱: 더시선 건축사사무소&#10;예비1 선형종: ㈜한길종합건축사사무소&#10;&#10;형식 2 (쉼표):&#10;외부, 심재익, 심건축사사무소&#10;예비, 선형종, ㈜한길종합건축사사무소&#10;&#10;형식 3 (탭구분):&#10;심사위원	심재익	심건축사사무소&#10;예비위원	선형종	㈜한길종합건축사사무소" style="min-height:90px; font-size:12px; width:100%; box-sizing:border-box; font-family:monospace;"></textarea>
       <div id="manualJudgesPreview"></div>
     </div>
     <div style="margin-top:12px; padding-top:12px; border-top:1px solid #e0f2fe;">
@@ -1223,9 +1223,12 @@ function parseJudgesText(text) {
   let currentType = '외부';
 
   for (const line of lines) {
-    // 형식 2: 탭 구분 (심사위원/예비위원\t이름\t소속)
-    if (line.includes('\t')) {
-      const parts = line.split('\t').map(p => p.trim());
+    // 형식 2: 탭 또는 쉼표 구분 (심사위원/예비위원[탭/,]이름[탭/,]소속)
+    const hasSep = line.includes('\t') || /^(외부|예비)\s*,/.test(line);
+    if (hasSep) {
+      const parts = line.includes('\t')
+        ? line.split('\t').map(p => p.trim())
+        : line.split(',').map(p => p.trim());
       if (parts.length >= 2) {
         const typeStr = parts[0];
         const name = parts[1];
