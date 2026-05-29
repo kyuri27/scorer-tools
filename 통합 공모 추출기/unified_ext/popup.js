@@ -134,7 +134,7 @@ function buildZip(files) {
     const date = dosDateTime(new Date());
     const local = new Uint8Array(30 + nameBytes.length + size);
     const lv = new DataView(local.buffer);
-    lv.setUint32(0, 0x04034b50, true); lv.setUint16(4, 20, true); lv.setUint16(6, 0, true);
+    lv.setUint32(0, 0x04034b50, true); lv.setUint16(4, 20, true); lv.setUint16(6, 0x0800, true);
     lv.setUint16(8, 0, true); lv.setUint16(10, date.time, true); lv.setUint16(12, date.date, true);
     lv.setUint32(14, crc, true); lv.setUint32(18, size, true); lv.setUint32(22, size, true);
     lv.setUint16(26, nameBytes.length, true); lv.setUint16(28, 0, true);
@@ -143,7 +143,7 @@ function buildZip(files) {
     const central = new Uint8Array(46 + nameBytes.length);
     const cv = new DataView(central.buffer);
     cv.setUint32(0, 0x02014b50, true); cv.setUint16(4, 20, true); cv.setUint16(6, 20, true);
-    cv.setUint16(8, 0, true); cv.setUint16(10, 0, true); cv.setUint16(12, date.time, true);
+    cv.setUint16(8, 0x0800, true); cv.setUint16(10, 0, true); cv.setUint16(12, date.time, true);
     cv.setUint16(14, date.date, true); cv.setUint32(16, crc, true); cv.setUint32(20, size, true);
     cv.setUint32(24, size, true); cv.setUint16(28, nameBytes.length, true); cv.setUint16(30, 0, true);
     cv.setUint16(32, 0, true); cv.setUint16(34, 0, true); cv.setUint16(36, 0, true);
@@ -482,7 +482,7 @@ async function copyForToolSeumter() {
     awards, files: []
   };
 
-  copyToClipboard(JSON.stringify(toolData, null, 2))
+  copyToClipboard(JSON.stringify(toolData))
     .then(() => showToast('✅ 정리도구용 JSON 복사됨!\n(이미지 포함)'))
     .catch(() => showToast('❌ 클립보드 복사 실패'));
   btn.disabled = false;
@@ -1271,7 +1271,7 @@ async function copyForToolHub() {
     files: [],
   };
 
-  copyToClipboard(JSON.stringify(toolData, null, 2))
+  copyToClipboard(JSON.stringify(toolData))
     .then(() => showToast('✅ 정리도구용 JSON 복사됨!\n(이미지 포함)'))
     .catch(() => showToast('❌ 클립보드 복사 실패'));
   btn.disabled = false;
@@ -1450,7 +1450,7 @@ async function copyForToolG2B() {
     _estimatedCost:   parseAmount(pick(d, '추정가격')),
   };
 
-  copyToClipboard(JSON.stringify(toolData, null, 2))
+  copyToClipboard(JSON.stringify(toolData))
     .then(() => showToast('✅ 정리도구용 JSON 복사됨!'))
     .catch(() => showToast('❌ 클립보드 복사 실패'));
   btn.disabled = false;

@@ -1,3 +1,5 @@
+const BUILD_DATE = '2026.05.27'; // 업데이트 날짜
+
 let extractedData = null;
 let cachedUrl = null;
 
@@ -25,17 +27,210 @@ function cleanCompetitionName(raw) {
   return name;
 }
 
+// ── Gemini API 키 저장/불러오기 ──
+async function loadApiKey() {
+  const { geminiApiKey } = await chrome.storage.local.get('geminiApiKey');
+  return geminiApiKey || '';
+}
+async function saveApiKey(key) {
+  await chrome.storage.local.set({ geminiApiKey: key.trim() });
+}
+
+// ── 설정 패널 ──
+function initSettings() {
+  const btn = document.getElementById('settingsBtn');
+  const panel = document.getElementById('settingsPanel');
+  const input = document.getElementById('apiKeyInput');
+  const saveBtn = document.getElementById('saveApiKeyBtn');
+  const status = document.getElementById('apiKeyStatus');
+
+  btn.addEventListener('click', async () => {
+    panel.classList.toggle('hidden');
+    if (!panel.classList.contains('hidden')) {
+      const key = await loadApiKey();
+      input.value = key;
+      status.textContent = key ? '✅ API 키 저장됨' : '';
+    }
+  });
+
+  saveBtn.addEventListener('click', async () => {
+    const key = input.value.trim();
+    if (!key) { status.textContent = '⚠️ 키를 입력해주세요'; return; }
+    await saveApiKey(key);
+    status.textContent = '✅ 저장됐습니다';
+    setTimeout(() => panel.classList.add('hidden'), 800);
+  });
+}
+
+// ── Gemini API 호출 ──
+async function callGemini(apiKey, pageText) {
+  const prompt = `다음은 건축 설계공모 관련 웹페이지의 텍스트입니다. 아래 JSON 형식에 맞춰 공모 정보를 추출해주세요. 없는 값은 빈 문자열("")로 두고, JSON만 반환하세요.
+
+{
+  "competitionName": "공모명 (설계공모/공모/사업 등 접미사 제거)",
+  "buildType": "건축물 용도",
+  "noticeNo": "공고번호",
+  "agency": "발주처/공고기관",
+  "location": "위치",
+  "scale": "연면적/규모",
+  "budget": "총사업비",
+  "constructionCost": "공사비",
+  "designCost": "설계비",
+  "noticeDate": "공고일 (YYYY-MM-DD)",
+  "announceDate": "당선작 발표일 (YYYY-MM-DD)",
+  "chairperson": "심사위원장",
+  "judges_planned": [{"type": "외부/내부/예비", "name": "이름", "org": "소속", "pos": "직급", "qual": "자격"}],
+  "judges_attended": [],
+  "awards": [{"awardType": "당선작/우수작 등", "office": "사무소명", "designer": "대표설계자", "num": "", "imgBase64": "", "imgMime": ""}],
+  "contactOrg": "담당부서",
+  "contactName": "담당자",
+  "files": []
+}
+
+페이지 텍스트:
+${pageText}`;
+
+  const resp = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: 'application/json' }
+      })
+    }
+  );
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.error?.message || `API 오류 ${resp.status}`);
+  }
+  const json = await resp.json();
+  const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error('Gemini 응답이 비어있습니다.');
+  return JSON.parse(text);
+}
+
+// ── AI 추출 ──
+async function extractWithAI() {
+  const apiKey = await loadApiKey();
+  if (!apiKey) {
+    document.getElementById('settingsPanel').classList.remove('hidden');
+    document.getElementById('apiKeyStatus').textContent = '⚠️ API 키를 먼저 입력해주세요';
+    return;
+  }
+  const btn = document.getElementById('aiExtractBtn');
+  const statusEl = document.getElementById('status');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> AI 분석 중...';
+  statusEl.innerHTML = '';
+
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => document.body.innerText.slice(0, 30000)
+    });
+    const pageText = result?.result || '';
+    if (!pageText) throw new Error('페이지 텍스트를 가져올 수 없습니다.');
+
+    const data = await callGemini(apiKey, pageText);
+
+    navigator.clipboard.writeText(JSON.stringify(data, null, 2))
+      .then(() => statusEl.innerHTML = '<div class="status success">✅ JSON 복사됨! 정리도구에 붙여넣으세요.</div>')
+      .catch(() => statusEl.innerHTML = '<div class="status error">❌ 클립보드 복사 실패</div>');
+
+    // 추출 결과 요약 표시
+    const summary = [
+      data.competitionName && `<b>${data.competitionName}</b>`,
+      data.agency,
+      data.announceDate && `발표일 ${data.announceDate}`,
+      data.judges_planned?.length && `심사위원 ${data.judges_planned.length}명`,
+      data.awards?.length && `수상작 ${data.awards.length}개`,
+    ].filter(Boolean).join(' · ');
+    if (summary) {
+      document.getElementById('result').innerHTML =
+        `<div class="status success" style="margin-top:8px; font-size:11px;">${summary}</div>`;
+    }
+  } catch (e) {
+    statusEl.innerHTML = `<div class="status error">❌ 오류: ${e.message}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '🤖 AI로 추출';
+  }
+}
+
+// ── 페이지 이미지 ZIP 다운로드 ──
+async function downloadPageImages() {
+  const btn = document.getElementById('downloadImagesBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 수집 중...';
+
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => Array.from(document.querySelectorAll('img'))
+        .filter(img => img.naturalWidth >= 150 && img.naturalHeight >= 150)
+        .map(img => img.src)
+        .filter(src => src.startsWith('http'))
+    });
+    const urls = result?.result || [];
+
+    if (urls.length === 0) {
+      showToast('⚠️ 150px 이상 이미지가 없습니다.');
+      return;
+    }
+
+    const zipFiles = [];
+    for (let i = 0; i < urls.length; i++) {
+      btn.innerHTML = `<span class="spinner"></span> ${i + 1}/${urls.length}`;
+      try {
+        const resp = await fetch(urls[i]);
+        if (!resp.ok) continue;
+        const buf = await resp.arrayBuffer();
+        const ct = resp.headers.get('content-type') || '';
+        const ext = ct.includes('png') ? 'png' : ct.includes('gif') ? 'gif' :
+                    ct.includes('webp') ? 'webp' : 'jpg';
+        zipFiles.push({ name: `image_${String(i + 1).padStart(2, '0')}.${ext}`, data: new Uint8Array(buf) });
+      } catch { /* 개별 실패 무시 */ }
+    }
+
+    if (zipFiles.length > 0) {
+      const hostname = new URL(tab.url).hostname.replace('www.', '');
+      await downloadZipBundle(zipFiles, `images_${hostname}.zip`);
+      showToast(`✅ ${zipFiles.length}개 이미지 ZIP 완료`);
+    } else {
+      showToast('⚠️ 이미지를 가져오지 못했습니다.');
+    }
+  } catch (e) {
+    showToast(`❌ 오류: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '🖼️ 이미지 ZIP';
+  }
+}
+
 async function init() {
+  document.getElementById('buildDate').textContent = BUILD_DATE;
+  initSettings();
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   const main = document.getElementById('main');
 
   if (!tab.url || !tab.url.includes('eais.go.kr')) {
+    // 세움터가 아닌 사이트 → AI 추출 UI
     main.innerHTML = `
-      <div class="not-seumter">
-        <div class="icon">🏗️</div>
-        <div><b>세움터 공모 페이지</b>에서 실행해 주세요</div>
-        <div style="font-size:11px; margin-top:6px; color:#9ca3af;">eais.go.kr 주소에서만 작동합니다</div>
-      </div>`;
+      <div style="margin-bottom:10px; font-size:12px; color:#6b7280;">
+        현재 페이지에서 공모 정보를 AI로 추출합니다.
+      </div>
+      <button id="aiExtractBtn">🤖 AI로 추출</button>
+      <div class="actions" style="margin-top:8px;">
+        <button class="secondary" id="downloadImagesBtn">🖼️ 이미지 ZIP</button>
+      </div>
+      <div id="status"></div>
+      <div id="result"></div>`;
+    document.getElementById('aiExtractBtn').addEventListener('click', extractWithAI);
+    document.getElementById('downloadImagesBtn').addEventListener('click', downloadPageImages);
     return;
   }
 
@@ -294,7 +489,7 @@ async function copyForTool() {
     awards, files: []
   };
 
-  navigator.clipboard.writeText(JSON.stringify(toolData, null, 2))
+  navigator.clipboard.writeText(JSON.stringify(toolData))
     .then(() => showToast('✅ 정리도구용 JSON 복사됨!\n(이미지 포함)'))
     .catch(() => showToast('❌ 클립보드 복사 실패'));
 
@@ -370,7 +565,7 @@ function buildZip(files) {
     const lv = new DataView(local.buffer);
     lv.setUint32(0, 0x04034b50, true);  // signature
     lv.setUint16(4, 20, true);          // version needed
-    lv.setUint16(6, 0, true);           // flags
+    lv.setUint16(6, 0x0800, true);      // flags (UTF-8)
     lv.setUint16(8, 0, true);           // compression (store)
     lv.setUint16(10, date.time, true);  // mod time
     lv.setUint16(12, date.date, true);  // mod date
@@ -389,7 +584,7 @@ function buildZip(files) {
     cv.setUint32(0, 0x02014b50, true);  // signature
     cv.setUint16(4, 20, true);          // version made by
     cv.setUint16(6, 20, true);          // version needed
-    cv.setUint16(8, 0, true);           // flags
+    cv.setUint16(8, 0x0800, true);      // flags (UTF-8)
     cv.setUint16(10, 0, true);          // compression
     cv.setUint16(12, date.time, true);
     cv.setUint16(14, date.date, true);
