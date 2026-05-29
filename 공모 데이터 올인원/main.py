@@ -1209,6 +1209,12 @@ def _open_browser(p, auth_path: Path):
     print(">>> 브라우저가 열렸습니다.")
     print(">>> ⚠️  이 브라우저 창에서만 작업하세요! (다른 창 금지)")
 
+    # 항상 scorer.co.kr 로 이동 (로그인 여부 확인 + 빈 화면 방지)
+    try:
+        page.goto("https://scorer.co.kr", wait_until="domcontentloaded", timeout=15000)
+    except Exception:
+        pass
+
     if not auth_path.exists():
         print()
         print(">>> 카카오톡으로 로그인 후 엔터를 눌러주세요.")
@@ -1217,6 +1223,7 @@ def _open_browser(p, auth_path: Path):
         print(f"💾 로그인 세션 저장 완료. 다음부터는 자동 로그인됩니다.")
 
     return browser, context, page
+
 
 
 # ============================================================
