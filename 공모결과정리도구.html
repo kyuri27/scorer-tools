@@ -2192,7 +2192,8 @@ async function renderDownloads(data) {
     }
   }
 
-  // 결과 파일 내 이미지 → 수상작 라벨로 매칭해 파일명 변경
+  // 결과 파일 내 이미지 → 수상작에 매핑해 imgBase64 설정 + 파일명 변경 + 수상작 테이블 갱신
+  let imagesAddedToAwards = false;
   if (data.awards && data.awards.length > 0) {
     const typeCounts = {};
     data.awards.forEach(a => {
@@ -2207,22 +2208,36 @@ async function renderDownloads(data) {
       return a.num ? `${t}${rankSuffix}_${a.num}` : `${t}${rankSuffix}`;
     }
 
-    for (const f of resultFiles) {
-      if (f.type !== 'image') continue;
+    const usedAwards = new Set();
+    const imageFiles = resultFiles.filter(f => f.type === 'image');
+
+    for (const f of imageFiles) {
       const ext = f.name.match(/\.(png|jpe?g|webp)$/i)?.[0] || '.jpg';
       const nameNoExt = f.name.normalize('NFC').trim()
         .replace(/\.(png|jpe?g|webp)$/i, '').replace(/\s+/g, '');
 
-      // 파일명에 포함된 수상작 라벨 검색 (가장 긴 매칭 우선)
+      // 1차: 파일명에 포함된 수상작 라벨 검색 (가장 긴 매칭 우선)
       let bestAward = null, bestLen = 0;
       for (const award of data.awards) {
+        if (usedAwards.has(award)) continue;
         const lbl = getAwardLabel(award).replace(/\s+/g, '');
         if (lbl && nameNoExt.includes(lbl) && lbl.length > bestLen) {
           bestAward = award; bestLen = lbl.length;
         }
       }
 
+      // 2차: 이름 매핑 실패 시 이미지 없는 수상작에 순서대로 매핑
+      if (!bestAward) {
+        bestAward = data.awards.find(a => !usedAwards.has(a) && !a.imgBase64 && !a.imgSrc) || null;
+      }
+
       if (bestAward) {
+        // imgBase64 설정 → 수상작 테이블에 이미지 표시됨
+        bestAward.imgBase64 = arrayBufferToBase64(f.arrayBuffer);
+        bestAward.imgMime = f.mimeType || 'image/jpeg';
+        usedAwards.add(bestAward);
+        imagesAddedToAwards = true;
+
         const lbl = getAwardLabel(bestAward);
         const office = (bestAward.office || '').replace(/[\\/:"*?<>|]/g, '').trim();
         const filename = (office ? `${lbl}_${office}` : lbl) + ext;
@@ -2230,6 +2245,11 @@ async function renderDownloads(data) {
         results.push({ filename, url: URL.createObjectURL(blob), pageCount: null, fileCount: 1, isImage: true });
       }
     }
+  }
+
+  // 이미지가 수상작에 추가된 경우 수상작 테이블 갱신 (이미지 컬럼 표시)
+  if (imagesAddedToAwards && window._currentData) {
+    renderSummary(window._currentData);
   }
 
   const area = document.getElementById('downloadArea');
