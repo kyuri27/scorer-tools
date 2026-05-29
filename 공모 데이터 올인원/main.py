@@ -972,7 +972,7 @@ def _clean_architect_name(name: str) -> str:
     return name.strip()
 
 
-def _create_entry(page, create_url, entry_name, img_path):
+def _create_entry(page, create_url, entry_name, img_path=None):
     page.goto(create_url)
     page.wait_for_load_state("load", timeout=15000)
 
@@ -984,8 +984,9 @@ def _create_entry(page, create_url, entry_name, img_path):
         inp.wait_for(state="visible", timeout=5000)
     inp.fill(entry_name)
 
-    page.locator("input[type='file']").first.set_input_files(img_path)
-    time.sleep(0.3)
+    if img_path:
+        page.locator("input[type='file']").first.set_input_files(img_path)
+        time.sleep(0.3)
 
     try:
         btn = page.get_by_role("button", name="저장하기")
@@ -1001,15 +1002,28 @@ def _create_entry(page, create_url, entry_name, img_path):
 
 
 def _get_existing_entry_names(page, contest_url, entry_names=None) -> set:
-    page.goto(contest_url)
-    page.wait_for_load_state("networkidle", timeout=15000)
+    page.goto(contest_url, wait_until="domcontentloaded", timeout=15000)
 
+    # 전체 표시(-1) 선택 후 테이블 행 수 안정화 대기
     try:
         sel = page.locator("select[name$='_length']").first
+        sel.wait_for(state="visible", timeout=5000)
         sel.select_option("-1")
-        page.wait_for_load_state("networkidle", timeout=8000)
+        # networkidle 대신 행 수 안정화 polling
+        _prev = -1
+        _stable = 0
+        for _ in range(30):
+            page.wait_for_timeout(200)
+            cur = page.locator("table tbody tr").count()
+            if cur == _prev:
+                _stable += 1
+                if _stable >= 2:
+                    break
+            else:
+                _stable = 0
+            _prev = cur
     except Exception:
-        pass
+        page.wait_for_timeout(800)
 
     existing = set()
     try:
@@ -1035,20 +1049,6 @@ def _get_existing_entry_names(page, contest_url, entry_names=None) -> set:
                 n = nfc(cells.nth(3).inner_text().strip())
                 if n and not n.isdigit():
                     existing.add(n)
-
-    if entry_names:
-        page_text = nfc(page.content())
-        for en in entry_names:
-            if nfc(en) in page_text and nfc(en) not in existing:
-                existing.add(nfc(en))
-
-    all_rows = page.locator("table tbody tr")
-    row_count = all_rows.count()
-    if row_count > 0:
-        first_cells = all_rows.first.locator("td")
-        fc = first_cells.count()
-        debug = [nfc(first_cells.nth(j).inner_text().strip()) for j in range(min(fc, 6))]
-        print(f"\n  [디버그] 테이블 행 {row_count}개, 첫 행 셀({fc}개): {debug}")
 
     if existing:
         print(f"  기존 항목 {len(existing)}개: {', '.join(sorted(existing))}")
@@ -1102,7 +1102,8 @@ def _select_architect(page, search_name, extra_info, original_name=""):
         time.sleep(0.2)
         return
 
-    keywords = [extra_info] if extra_info else []
+    # extra_info가 콤마로 구분된 여러 키워드일 수 있음 (공동참여자 disambiguation 포함)
+    keywords = [e.strip() for e in extra_info.split(",") if e.strip()] if extra_info else []
     for kw in ["종합", "스튜디오"]:
         if kw in original_name:
             keywords.append(kw)
@@ -1308,14 +1309,12 @@ def run_result_task(page, context, auth_path: Path, data: dict, task_mode: int =
 
                 for i, (entry_name, architect_name, extra_info) in enumerate(entries, 1):
                     img = _find_image(entry_name)
-                    if not img:
-                        print(f"[{i}/{len(entries)}] {entry_name}  →  ⏭  이미지 없어 건너뜁니다")
-                        continue
                     if nfc(entry_name) in existing:
                         print(f"[{i}/{len(entries)}] {entry_name}  →  ⏭  이미 등록됨")
                         created.append((entry_name, architect_name, extra_info))
                         continue
-                    print(f"[{i}/{len(entries)}] {entry_name} ...", end="", flush=True)
+                    img_label = "이미지 없음" if not img else ""
+                    print(f"[{i}/{len(entries)}] {entry_name}{' ('+img_label+')' if img_label else ''} ...", end="", flush=True)
                     while True:
                         try:
                             _create_entry(page, create_url, entry_name, img)
@@ -1341,8 +1340,16 @@ def run_result_task(page, context, auth_path: Path, data: dict, task_mode: int =
                 for i, (entry_name, architect_name, extra_info) in enumerate(created, 1):
                     arch_list  = [a.strip() for a in architect_name.split(",") if a.strip()]
                     extra_list = [e.strip() for e in extra_info.split(",") if e.strip()]
-                    pairs = [(arch_list[j], extra_list[j] if j < len(extra_list) else "")
-                             for j in range(len(arch_list))]
+                    pairs = []
+                    for j in range(len(arch_list)):
+                        if j < len(arch_list) - 1:
+                            # 중간 office: 대응하는 designer 하나만
+                            extra = extra_list[j] if j < len(extra_list) else ""
+                        else:
+                            # 마지막 office: 남은 designer 전부를 disambiguation 키워드로 합침
+                            extras = extra_list[j:] if j < len(extra_list) else []
+                            extra = ",".join(extras)
+                        pairs.append((arch_list[j], extra))
                     keywords = [f"'{_clean_architect_name(a)}'" for a, _ in pairs]
                     print(f"[{i}/{len(created)}] {entry_name}  →  {', '.join(keywords)} ...", end="", flush=True)
                     while True:
