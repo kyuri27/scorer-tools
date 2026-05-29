@@ -269,6 +269,51 @@ async function extractData() {
   }
   result['수상작품_목록'] = awards;
 
+  // ── 6. 첨부파일 ──
+  const attachedFiles = [];
+  const seenFileNames = new Set();
+  const FILE_EXT = /\.(hwp|pdf|doc|docx|xls|xlsx|zip|ppt|pptx|hwpx)$/i;
+
+  // hub.go.kr 첨부파일 영역: #idDesignPbpSbmsnDcmt 또는 .board-view
+  const docArea = document.querySelector(
+    '#idDesignPbpSbmsnDcmt, #idDesignPbpSbmsnDcmnt, [id*="SbmsnDcm"], .board-view'
+  ) || document;
+
+  // TR 행 기반 탐색 (파일명 셀 + 다운로드 버튼 셀)
+  docArea.querySelectorAll('tr').forEach(tr => {
+    const tds = Array.from(tr.querySelectorAll('td'));
+    tds.forEach(td => {
+      const text = td.textContent.trim().replace(/\s+/g, ' ');
+      if (!FILE_EXT.test(text) || seenFileNames.has(text)) return;
+      // 같은 행에서 다운로드 버튼 찾기
+      const btn = tr.querySelector('button, a[onclick], a[href]:not([href="#"]):not([href=""])');
+      if (!btn) return;
+      btn.setAttribute('data-hub-attached', String(attachedFiles.length));
+      seenFileNames.add(text);
+      attachedFiles.push({ fileName: text });
+    });
+  });
+
+  // fallback: TR 구조가 없을 때 — 파일명 요소 주변에서 버튼 탐색
+  if (attachedFiles.length === 0) {
+    docArea.querySelectorAll('*').forEach(el => {
+      if (el.children.length > 0) return; // leaf만
+      const text = el.textContent.trim().replace(/\s+/g, ' ');
+      if (!FILE_EXT.test(text) || seenFileNames.has(text)) return;
+      // 부모/형제 범위에서 다운로드 버튼 탐색
+      const container = el.closest('li, div, p') || el.parentElement;
+      if (!container) return;
+      const btn = container.querySelector('button, a[onclick]')
+                || container.parentElement?.querySelector('button, a[onclick]');
+      if (!btn) return;
+      btn.setAttribute('data-hub-attached', String(attachedFiles.length));
+      seenFileNames.add(text);
+      attachedFiles.push({ fileName: text });
+    });
+  }
+
+  result['첨부파일_목록'] = attachedFiles;
+
   result['_url'] = window.location.href;
   result['_extractedAt'] = new Date().toLocaleString('ko-KR');
   return result;
