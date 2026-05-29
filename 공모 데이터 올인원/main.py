@@ -191,6 +191,67 @@ class _Handler(BaseHTTPRequestHandler):
             self.end_headers()
 
 
+def start_local_server() -> _ReuseAddrServer:
+    try:
+        server = _ReuseAddrServer(("localhost", SERVER_PORT), _Handler)
+    except OSError:
+        print(f"⚠️  포트 {SERVER_PORT} 이미 사용 중 — 기존 프로세스를 종료 후 다시 실행해주세요.")
+        import sys; sys.exit(1)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+class _ReuseAddrServer(HTTPServer):
+    """SO_REUSEADDR — 이전 실행이 포트를 점유 중일 때도 바로 재시작 가능"""
+    allow_reuse_address = True
+
+
+class _Handler(BaseHTTPRequestHandler):
+    def log_message(self, *a):
+        pass  # 서버 로그 억제
+
+    def _cors(self):
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+
+    def do_OPTIONS(self):
+        self.send_response(200)
+        self._cors()
+        self.end_headers()
+
+    def do_GET(self):
+        if self.path == "/status":
+            body = json.dumps({"status": "ready"}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self._cors()
+            self.end_headers()
+            self.wfile.write(body)
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+    def do_POST(self):
+        if self.path in ("/start-competition", "/start"):
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                data = json.loads(self.rfile.read(length))
+                task_type = "info" if self.path == "/start-competition" else "result"
+                _trigger_queue.put((task_type, data))
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self._cors()
+                self.end_headers()
+                self.wfile.write(json.dumps({"ok": True}).encode())
+            except Exception as e:
+                self.send_response(500)
+                self._cors()
+                self.end_headers()
+                self.wfile.write(str(e).encode())
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+
 def start_local_server() -> HTTPServer:
     server = HTTPServer(("localhost", SERVER_PORT), _Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
