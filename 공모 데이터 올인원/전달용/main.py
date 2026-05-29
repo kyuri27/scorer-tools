@@ -422,7 +422,22 @@ def add_judge(page, judge: dict) -> tuple:
     except Exception:
         return False, "검색 박스를 찾지 못함"
 
-    page.wait_for_timeout(SEARCH_WAIT_MS)
+
+    # DataTable 필터가 완전히 적용될 때까지 대기 (최대 3초)
+    # 행 수가 2회 연속 동일하면 안정된 것으로 판단
+    _prev_rc = -1
+    _stable = 0
+    for _ in range(30):
+        page.wait_for_timeout(100)
+        _cur_rc = page.locator('#dataTable tbody tr').count()
+        if _cur_rc == _prev_rc:
+            _stable += 1
+            if _stable >= 2:
+                break
+        else:
+            _stable = 0
+        _prev_rc = _cur_rc
+
 
     try:
         rows = page.locator('#dataTable tbody tr')
