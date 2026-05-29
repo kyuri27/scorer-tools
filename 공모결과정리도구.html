@@ -1628,7 +1628,7 @@ async function downloadAwardsTxt() {
   }
 
   const lines = data.awards.map(a =>
-    [getLabel(a), a.office || '', a.designer || ''].join('\t')
+    [getLabel(a), (a.office || '').replace(/\+/g, ','), (a.designer || '').replace(/\+/g, ',')].join('\t')
   );
   const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/plain;charset=utf-8' });
 
@@ -1711,7 +1711,10 @@ function buildAwardsTxtContent(data) {
     const showRank = typeCounts[raw] > 1;
     const rankSuffix = showRank ? String(a.pdfRank || '') : '';
     const label = a.num ? `${t}${rankSuffix}_${a.num}` : `${t}${rankSuffix}`;
-    return [label, a.office || '', a.designer || ''].join('\t');
+    // +로 구분된 합동 출품은 ,로 변환 → Python에서 여러 건축가로 분리 처리
+    const office   = (a.office   || '').replace(/\+/g, ',');
+    const designer = (a.designer || '').replace(/\+/g, ',');
+    return [label, office, designer].join('\t');
   }).join('\n');
 }
 
