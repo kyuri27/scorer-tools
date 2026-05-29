@@ -622,6 +622,16 @@ ORG_SUFFIXES = [
     "센터", "본부", "청", "원",
 ]
 
+# 도·광역시 접두사 (키워드 추출 2단계에서 제거)
+PROVINCE_PREFIXES = [
+    "강원특별자치도", "전북특별자치도",
+    "서울특별시", "부산광역시", "대구광역시", "인천광역시",
+    "광주광역시", "대전광역시", "울산광역시", "세종특별자치시",
+    "경기도", "강원도", "충청북도", "충청남도",
+    "전라북도", "전라남도", "경상북도", "경상남도", "제주특별자치도",
+    "제주도",
+]
+
 def extract_search_keyword(name: str) -> str:
     """발주처 이름에서 핵심 검색 키워드 추출 (행정·기관 접미사 제거)"""
     for sfx in ADMIN_SUFFIXES + ORG_SUFFIXES:
@@ -630,6 +640,22 @@ def extract_search_keyword(name: str) -> str:
             if kw:
                 return kw
     return name
+
+
+def extract_core_keyword(name: str) -> str:
+    """접미사 제거 후 도/광역시 접두사까지 제거하여 핵심 키워드 추출
+    예) 경상북도포항교육지원청 → (교육지원청 제거) → 경상북도포항 → (경상북도 제거) → 포항
+    """
+    kw = extract_search_keyword(name)
+    # 접두사 제거
+    for pfx in PROVINCE_PREFIXES:
+        if kw.startswith(pfx):
+            core = kw[len(pfx):].strip()
+            if core:
+                return core
+    # 접두사 목록에 없어도 끝에 행정 접미사가 남은 경우 재시도
+    # (예: "경기도수원" 중 "경기도" 미포함 시 "수원" 추출 불가 → 그냥 kw 반환)
+    return kw
 
 
 def _wait_for_org_table(page):
@@ -649,6 +675,34 @@ def _wait_for_org_table(page):
         _prev_rc = _cur_rc
 
 
+def _collect_all_table_rows(page) -> list:
+    """DataTable 전체 페이지를 순회하며 (page_num, row_idx, text) 수집"""
+    all_rows = []
+    current_page = 1
+
+    while True:
+        rows = page.locator('#dataTable tbody tr')
+        rc = rows.count()
+        if rc > 0:
+            first_text = rows.nth(0).inner_text()
+            if not ("No data" in first_text or ("데이터" in first_text and "없" in first_text)):
+                for i in range(rc):
+                    all_rows.append((current_page, i, rows.nth(i).inner_text()))
+
+        # 다음 페이지 버튼 확인
+        next_btn = page.locator('#dataTable_next')
+        if next_btn.count() == 0:
+            break
+        next_cls = next_btn.get_attribute('class') or ''
+        if 'disabled' in next_cls:
+            break
+        next_btn.click()
+        _wait_for_org_table(page)
+        current_page += 1
+
+    return all_rows
+
+
 def _search_org_and_select(page, search_term, original_name) -> bool:
     sb = page.locator('input[aria-controls="dataTable"]')
     sb.wait_for(state="visible", timeout=5000)
@@ -657,27 +711,48 @@ def _search_org_and_select(page, search_term, original_name) -> bool:
     sb.fill(search_term)
     _wait_for_org_table(page)
 
-    rows = page.locator('#dataTable tbody tr')
-    rc = rows.count()
-    if rc == 0:
-        return False
-    first_text = rows.nth(0).inner_text()
-    if "No data" in first_text or ("데이터" in first_text and "없" in first_text):
+    all_rows = _collect_all_table_rows(page)
+    total_pages = all_rows[-1][0] if all_rows else 0
+
+    if not all_rows:
         return False
 
-    if rc == 1:
-        target = rows.nth(0)
+    if len(all_rows) == 1:
+        target_page, target_row_idx, _ = all_rows[0]
         print("     검색결과 1개 → 자동 선택")
     else:
-        print(f"     검색결과 {rc}개 → 유사도 매칭 중")
-        best, bi = 0.0, 0
-        for i in range(rc):
-            s = affiliation_similarity(original_name, rows.nth(i).inner_text())
+        page_info = f" (총 {total_pages}페이지)" if total_pages > 1 else ""
+        print(f"     검색결과 {len(all_rows)}개{page_info} → 유사도 매칭 중")
+        best, best_idx = 0.0, 0
+        for idx, (pg, ri, text) in enumerate(all_rows):
+            s = affiliation_similarity(original_name, text)
             if s > best:
-                best, bi = s, i
-        target = rows.nth(bi)
+                best, best_idx = s, idx
+        target_page, target_row_idx, _ = all_rows[best_idx]
         print(f"     매칭 (유사도 {best:.0%})")
 
+    # 현재 위치(마지막 페이지)에서 target_page로 이동
+    current_page = total_pages
+    if current_page != target_page:
+        first_btn = page.locator('#dataTable_first')
+        if first_btn.count() > 0:
+            first_btn.click()
+            _wait_for_org_table(page)
+        else:
+            # first 버튼 없으면 previous 반복
+            prev_btn = page.locator('#dataTable_previous')
+            for _ in range(current_page - 1):
+                if 'disabled' in (prev_btn.get_attribute('class') or ''):
+                    break
+                prev_btn.click()
+                _wait_for_org_table(page)
+        # target_page까지 next 클릭
+        for _ in range(target_page - 1):
+            page.locator('#dataTable_next').click()
+            _wait_for_org_table(page)
+
+    rows = page.locator('#dataTable tbody tr')
+    target = rows.nth(target_row_idx)
     btn = target.locator('button:has-text("선택")')
     if btn.count() == 0:
         return False
@@ -685,7 +760,6 @@ def _search_org_and_select(page, search_term, original_name) -> bool:
     btn.first.click(timeout=5000)
     page.wait_for_timeout(ACTION_WAIT_MS)
     return True
-
 
 
 def run_organization_input(page, comp_id: str, agency: str = None):
@@ -719,13 +793,22 @@ def run_organization_input(page, comp_id: str, agency: str = None):
     except Exception:
         pass
 
-    print(f"     '{name}' 으로 검색 중...")
-    found = _search_org_and_select(page, name, name)
+    tried: set = set()
+
+    def _try(term: str) -> bool:
+        if term in tried:
+            return False
+        tried.add(term)
+        print(f"     '{term}' 으로 검색 중...")
+        return _search_org_and_select(page, term, name)
+
+    found = _try(name)
     if not found:
         kw = extract_search_keyword(name)
-        if kw != name:
-            print(f"     결과 없음 → '{kw}' 으로 재검색...")
-            found = _search_org_and_select(page, kw, name)
+        found = _try(kw)
+    if not found:
+        core = extract_core_keyword(name)
+        found = _try(core)
 
     if not found:
         print(f"  ❌ '{name}'을(를) DB에서 찾지 못했습니다.")
@@ -810,8 +893,17 @@ def upload_notice_files(page, comp_id: str) -> tuple:
     return True, f"{len(new_files)}개 파일 업로드 완료"
 
 
-def run_info_task(page, context, auth_path: Path, data: dict):
-    """HTML /start-competition 페이로드 처리 (공모 정보 입력)"""
+def run_info_task(page, context, auth_path: Path, data: dict, task_mode: int = 1):
+    """HTML /start-competition 페이로드 처리 (공모 정보 입력)
+    task_mode:
+      1=전체(정보+결과), 2=정보전체, 3=정보-심사위원, 4=정보-파일, 5=정보-발주처
+      6~9=결과 전용 모드 → 정보 입력 건너뜀
+    """
+    # 결과 전용 모드일 때는 정보 입력 불필요
+    if task_mode in (6, 7, 8, 9):
+        print(f"  ℹ️  현재 모드는 결과 입력 전용입니다. 정보 입력을 건너뜁니다.")
+        return
+
     comp_id = str(data.get("competition_id", "")).strip()
     agency  = data.get("agency", "").strip()
     judges_raw = data.get("judges", [])
@@ -828,31 +920,34 @@ def run_info_task(page, context, auth_path: Path, data: dict):
         return
     _save_auth(context, auth_path)
 
-    # 심사위원
-    if judges:
-        print(f"\n[심사위원 입력] {len(judges)}명")
-        ok = run_judges_input(page, judges)
-        if not ok:
-            print("\n❌ 브라우저 연결 끊김")
-            return
-    else:
-        print("\n[심사위원 입력] 전달받은 심사위원 없음, 건너뜁니다.")
+    # 심사위원  (mode: 1, 2, 3)
+    if task_mode in (1, 2, 3):
+        if judges:
+            print(f"\n[심사위원 입력] {len(judges)}명")
+            ok = run_judges_input(page, judges)
+            if not ok:
+                print("\n❌ 브라우저 연결 끊김")
+                return
+        else:
+            print("\n[심사위원 입력] 전달받은 심사위원 없음, 건너뜁니다.")
 
-    # 공고파일 업로드
-    if notice_files_data:
-        print(f"\n[공고파일 업로드] {len(notice_files_data)}개")
-        _clear_and_save_files(SCRIPT_DIR / NOTICE_FILES_DIR, notice_files_data)
-        ok, msg = upload_notice_files(page, comp_id)
-        print(f"  {'✅' if ok else '❌'} {msg}")
-    else:
-        print("\n[공고파일 업로드] 전달받은 파일 없음, 건너뜁니다.")
+    # 공고파일 업로드  (mode: 1, 2, 4)
+    if task_mode in (1, 2, 4):
+        if notice_files_data:
+            print(f"\n[공고파일 업로드] {len(notice_files_data)}개")
+            _clear_and_save_files(SCRIPT_DIR / NOTICE_FILES_DIR, notice_files_data)
+            ok, msg = upload_notice_files(page, comp_id)
+            print(f"  {'✅' if ok else '❌'} {msg}")
+        else:
+            print("\n[공고파일 업로드] 전달받은 파일 없음, 건너뜁니다.")
 
-    # 발주처
-    if agency:
-        print(f"\n[발주처 입력]")
-        run_organization_input(page, comp_id, agency=agency)
-    else:
-        print("\n[발주처 입력] 전달받은 발주처 없음, 건너뜁니다.")
+    # 발주처  (mode: 1, 2, 5)
+    if task_mode in (1, 2, 5):
+        if agency:
+            print(f"\n[발주처 입력]")
+            run_organization_input(page, comp_id, agency=agency)
+        else:
+            print("\n[발주처 입력] 전달받은 발주처 없음, 건너뜁니다.")
 
 
 
@@ -1143,8 +1238,17 @@ def _manage_jury_absence(page, contest_id, judges):
             print(f"\n  ⚠️ '{judge['name']}' 을(를) 목록에서 찾지 못함")
 
 
-def run_result_task(page, context, auth_path: Path, data: dict):
-    """HTML /start 페이로드 처리 (공모 결과 입력)"""
+def run_result_task(page, context, auth_path: Path, data: dict, task_mode: int = 1):
+    """HTML /start 페이로드 처리 (공모 결과 입력)
+    task_mode:
+      1=전체(정보+결과), 6=결과전체, 7=결과-입상작, 8=결과-결과파일, 9=결과-불참처리
+      2~5=정보 전용 모드 → 결과 입력 건너뜀
+    """
+    # 정보 전용 모드일 때는 결과 입력 불필요
+    if task_mode in (2, 3, 4, 5):
+        print(f"  ℹ️  현재 모드는 정보 입력 전용입니다. 결과 입력을 건너뜁니다.")
+        return
+
     comp_id           = str(data.get("competition_id", "")).strip()
     awards_txt        = data.get("awards_txt", "")
     images            = data.get("images", [])
@@ -1157,6 +1261,7 @@ def run_result_task(page, context, auth_path: Path, data: dict):
 
     contest_url = f"https://scorer.co.kr/admin/entry/{comp_id}"
     create_url  = f"https://scorer.co.kr/admin/entry/create/{comp_id}"
+    arch_ok = 0  # 건축가 관리 성공 수
 
     # 수신 파일/이미지 저장 (폴더 비우고 새로 저장)
     if awards_txt:
@@ -1169,129 +1274,136 @@ def run_result_task(page, context, auth_path: Path, data: dict):
         _clear_and_save_files(UPLOAD_DIR, upload_files_data)
         print(f"  결과 파일 {len(upload_files_data)}개 저장됨")
 
-    if not awards_txt:
-        print("❌ 수상작 데이터가 없습니다.")
-        return
-
-    # 수상작 목록 파싱
-    entries = []
-    for line in awards_txt.splitlines():
-        parts = line.rstrip("\n").split("\t")
-        if parts and parts[0].strip():
-            entries.append((
-                parts[0].strip(),
-                parts[1].strip() if len(parts) > 1 else "",
-                parts[2].strip() if len(parts) > 2 else "",
-            ))
-    if not entries:
-        print("❌ 입상작 목록이 비어있습니다.")
-        return
-
-    print(f"\n📋 {len(entries)}개 입상작 처리 시작\n")
-
-    # ── 1단계: 입상작 등록 ──
-    print(f"{'─' * 50}")
-    print(f"  1단계: 입상작 등록 ({len(entries)}개)")
-    print(f"{'─' * 50}")
-    print("  기존 등록 항목 확인 중...")
-    existing = _get_existing_entry_names(page, contest_url, [e[0] for e in entries])
-
     created = []
-    for i, (entry_name, architect_name, extra_info) in enumerate(entries, 1):
-        img = _find_image(entry_name)
-        if not img:
-            print(f"[{i}/{len(entries)}] {entry_name}  →  ⏭  이미지 없어 건너뜁니다")
-            continue
-        if nfc(entry_name) in existing:
-            print(f"[{i}/{len(entries)}] {entry_name}  →  ⏭  이미 등록됨")
-            created.append((entry_name, architect_name, extra_info))
-            continue
-        print(f"[{i}/{len(entries)}] {entry_name} ...", end="", flush=True)
-        while True:
-            try:
-                _create_entry(page, create_url, entry_name, img)
-                print("  ✅")
-                created.append((entry_name, architect_name, extra_info))
-                break
-            except PlaywrightTimeoutError as e:
-                print(f"\n  ❌ 시간 초과: {e}")
-            except Exception as e:
-                err = str(e).lower()
-                if "browser" in err and "closed" in err:
-                    print("\n❌ 브라우저 연결 끊김")
+    entries = []
+
+    # ── 1+2단계: 입상작 등록 + 건축가 관리  (mode: 1, 6, 7) ──
+    if task_mode in (1, 6, 7):
+        if not awards_txt:
+            print("❌ 수상작 데이터가 없습니다.")
+            if task_mode == 7:
+                return
+        else:
+            for line in awards_txt.splitlines():
+                parts = line.rstrip("\n").split("\t")
+                if parts and parts[0].strip():
+                    entries.append((
+                        parts[0].strip(),
+                        parts[1].strip() if len(parts) > 1 else "",
+                        parts[2].strip() if len(parts) > 2 else "",
+                    ))
+            if not entries:
+                print("❌ 입상작 목록이 비어있습니다.")
+                if task_mode == 7:
                     return
-                print(f"\n  ❌ 오류: {e}")
-            if pause_for_error() == "skip":
-                break
+            else:
+                print(f"\n📋 {len(entries)}개 입상작 처리 시작\n")
 
-    # ── 2단계: 건축가 관리 ──
-    print(f"\n{'─' * 50}")
-    print(f"  2단계: 건축가 관리 ({len(created)}개)")
-    print(f"{'─' * 50}")
-    arch_ok = 0
-    for i, (entry_name, architect_name, extra_info) in enumerate(created, 1):
-        arch_list  = [a.strip() for a in architect_name.split(",") if a.strip()]
-        extra_list = [e.strip() for e in extra_info.split(",") if e.strip()]
-        pairs = [(arch_list[j], extra_list[j] if j < len(extra_list) else "")
-                 for j in range(len(arch_list))]
-        keywords = [f"'{_clean_architect_name(a)}'" for a, _ in pairs]
-        print(f"[{i}/{len(created)}] {entry_name}  →  {', '.join(keywords)} ...", end="", flush=True)
-        while True:
-            try:
-                _go_to_architect_manage(page, contest_url, entry_name)
-                assigned = _get_assigned_architect_names(page)
-                if len(assigned) >= len(pairs):
-                    print("  ⏭  이미 전원 배정됨")
-                    arch_ok += 1
-                    break
-                for arch, extra in pairs:
-                    sn = _clean_architect_name(arch)
-                    if any(sn in n for n in assigned):
-                        print(f"     ⏭  '{sn}' 이미 배정됨")
-                    else:
-                        print(f"     ➕ '{sn}' ...", end="", flush=True)
-                        _select_architect(page, sn, extra, arch)
-                        print(" ✅")
-                print("  완료")
-                page.goto(contest_url)
-                page.wait_for_load_state("load", timeout=15000)
-                arch_ok += 1
-                break
-            except PlaywrightTimeoutError as e:
-                print(f"\n  ❌ 시간 초과: {e}")
-            except Exception as e:
-                err = str(e).lower()
-                if "browser" in err and "closed" in err:
-                    print("\n❌ 브라우저 연결 끊김")
-                    return
-                print(f"\n  ❌ 오류: {e}")
-            if pause_for_error() == "skip":
-                break
+                # ── 1단계: 입상작 등록 ──
+                print(f"{'─' * 50}")
+                print(f"  1단계: 입상작 등록 ({len(entries)}개)")
+                print(f"{'─' * 50}")
+                print("  기존 등록 항목 확인 중...")
+                existing = _get_existing_entry_names(page, contest_url, [e[0] for e in entries])
 
-    # ── 3단계: 결과파일 업로드 ──
-    print(f"\n{'─' * 50}")
-    print(f"  3단계: 결과파일 업로드")
-    print(f"{'─' * 50}")
-    upload_result_files(page, comp_id)
+                for i, (entry_name, architect_name, extra_info) in enumerate(entries, 1):
+                    img = _find_image(entry_name)
+                    if not img:
+                        print(f"[{i}/{len(entries)}] {entry_name}  →  ⏭  이미지 없어 건너뜁니다")
+                        continue
+                    if nfc(entry_name) in existing:
+                        print(f"[{i}/{len(entries)}] {entry_name}  →  ⏭  이미 등록됨")
+                        created.append((entry_name, architect_name, extra_info))
+                        continue
+                    print(f"[{i}/{len(entries)}] {entry_name} ...", end="", flush=True)
+                    while True:
+                        try:
+                            _create_entry(page, create_url, entry_name, img)
+                            print("  ✅")
+                            created.append((entry_name, architect_name, extra_info))
+                            break
+                        except PlaywrightTimeoutError as e:
+                            print(f"\n  ❌ 시간 초과: {e}")
+                        except Exception as e:
+                            err = str(e).lower()
+                            if "browser" in err and "closed" in err:
+                                print("\n❌ 브라우저 연결 끊김")
+                                return
+                            print(f"\n  ❌ 오류: {e}")
+                        if pause_for_error() == "skip":
+                            break
 
-    # ── 4단계: 심사위원 불참 처리 ──
-    if judges:
-        absent_count = sum(1 for j in judges if j.get("status") == "불참")
+                # ── 2단계: 건축가 관리 ──
+                print(f"\n{'─' * 50}")
+                print(f"  2단계: 건축가 관리 ({len(created)}개)")
+                print(f"{'─' * 50}")
+                arch_ok = 0
+                for i, (entry_name, architect_name, extra_info) in enumerate(created, 1):
+                    arch_list  = [a.strip() for a in architect_name.split(",") if a.strip()]
+                    extra_list = [e.strip() for e in extra_info.split(",") if e.strip()]
+                    pairs = [(arch_list[j], extra_list[j] if j < len(extra_list) else "")
+                             for j in range(len(arch_list))]
+                    keywords = [f"'{_clean_architect_name(a)}'" for a, _ in pairs]
+                    print(f"[{i}/{len(created)}] {entry_name}  →  {', '.join(keywords)} ...", end="", flush=True)
+                    while True:
+                        try:
+                            _go_to_architect_manage(page, contest_url, entry_name)
+                            assigned = _get_assigned_architect_names(page)
+                            if len(assigned) >= len(pairs):
+                                print("  ⏭  이미 전원 배정됨")
+                                arch_ok += 1
+                                break
+                            for arch, extra in pairs:
+                                sn = _clean_architect_name(arch)
+                                if any(sn in n for n in assigned):
+                                    print(f"     ⏭  '{sn}' 이미 배정됨")
+                                else:
+                                    print(f"     ➕ '{sn}' ...", end="", flush=True)
+                                    _select_architect(page, sn, extra, arch)
+                                    print(" ✅")
+                            print("  완료")
+                            page.goto(contest_url)
+                            page.wait_for_load_state("load", timeout=15000)
+                            arch_ok += 1
+                            break
+                        except PlaywrightTimeoutError as e:
+                            print(f"\n  ❌ 시간 초과: {e}")
+                        except Exception as e:
+                            err = str(e).lower()
+                            if "browser" in err and "closed" in err:
+                                print("\n❌ 브라우저 연결 끊김")
+                                return
+                            print(f"\n  ❌ 오류: {e}")
+                        if pause_for_error() == "skip":
+                            break
+
+    # ── 3단계: 결과파일 업로드  (mode: 1, 6, 8) ──
+    if task_mode in (1, 6, 8):
         print(f"\n{'─' * 50}")
-        print(f"  4단계: 심사위원 불참 처리 (불참 {absent_count}명)")
+        print(f"  3단계: 결과파일 업로드")
         print(f"{'─' * 50}")
-        _manage_jury_absence(page, comp_id, judges)
-    else:
-        print(f"\n  ℹ️  심사위원 데이터 없음 → 불참 처리 건너뜁니다.")
+        upload_result_files(page, comp_id)
+
+    # ── 4단계: 심사위원 불참 처리  (mode: 1, 6, 9) ──
+    if task_mode in (1, 6, 9):
+        if judges:
+            absent_count = sum(1 for j in judges if j.get("status") == "불참")
+            print(f"\n{'─' * 50}")
+            print(f"  4단계: 심사위원 불참 처리 (불참 {absent_count}명)")
+            print(f"{'─' * 50}")
+            _manage_jury_absence(page, comp_id, judges)
+        else:
+            print(f"\n  ℹ️  심사위원 데이터 없음 → 불참 처리 건너뜁니다.")
 
     _save_auth(context, auth_path)
 
     absent_done = sum(1 for j in judges if j.get("status") == "불참")
     print(f"\n{'=' * 50}")
     print(f"  공모 결과 입력 완료!")
-    print(f"  입상작: {len(created)}/{len(entries)}개")
-    print(f"  건축가: {arch_ok}/{len(created)}개")
-    if judges:
+    if entries and task_mode in (1, 6, 7):
+        print(f"  입상작: {len(created)}/{len(entries)}개")
+        print(f"  건축가: {arch_ok}/{len(created)}개")
+    if judges and task_mode in (1, 6, 9):
         print(f"  불참 처리: {absent_done}명")
     print(f"{'=' * 50}")
 
@@ -1409,11 +1521,46 @@ def main():
     print("  공모 데이터 자동 입력  |  스코어러")
     print("=" * 60)
 
+    # ── 작업 모드 선택 ──────────────────────────────────────────
+    print("\n어떤 작업을 할까요?\n")
+    print("  [1] 전체  (정보 / 결과 — HTML 버튼에 따라 자동)")
+    print()
+    print("  ── 공모 정보 입력 ──────────────────────────")
+    print("  [2] 정보 전체  (심사위원 + 파일 업로드 + 발주처)")
+    print("  [3] 정보 — 심사위원만")
+    print("  [4] 정보 — 파일 업로드만")
+    print("  [5] 정보 — 발주처만")
+    print()
+    print("  ── 공모 결과 입력 ──────────────────────────")
+    print("  [6] 결과 전체  (입상작 + 결과파일 + 불참처리)")
+    print("  [7] 결과 — 입상작만")
+    print("  [8] 결과 — 결과파일만")
+    print("  [9] 결과 — 심사위원 불참만")
+    print("\n" + "─" * 30)
+    while True:
+        mode_input = input(">>> 번호 선택: ").strip()
+        if mode_input in ("1", "2", "3", "4", "5", "6", "7", "8", "9"):
+            task_mode = int(mode_input)
+            break
+        print("  1~9 중 하나를 입력해주세요.")
+    mode_labels = {
+        1: "전체 (정보 / 결과)",
+        2: "정보 전체 (심사위원 + 파일 업로드 + 발주처)",
+        3: "정보 — 심사위원만",
+        4: "정보 — 파일 업로드만",
+        5: "정보 — 발주처만",
+        6: "결과 전체 (입상작 + 결과파일 + 불참처리)",
+        7: "결과 — 입상작만",
+        8: "결과 — 결과파일만",
+        9: "결과 — 심사위원 불참만",
+    }
+    print(f"✓ 선택: {mode_labels[task_mode]}\n")
+    # ────────────────────────────────────────────────────────────
+
     auth_path = SCRIPT_DIR / AUTH_FILE
 
     server = start_local_server()
-    print(f"\n🌐 서버 준비 완료 (포트 {SERVER_PORT})")
-    print("   공모 ID 입력 후 엔터  또는  HTML 도구에서 버튼 클릭  (종료: q)\n")
+    print(f"🌐 서버 준비 완료 (포트 {SERVER_PORT})")
 
     with sync_playwright() as p:
         browser = None
@@ -1451,21 +1598,30 @@ def main():
                             if comp_id:
                                 print(f"\n⚠️  숫자만 입력해주세요. (입력값: '{comp_id}')")
                             continue
+                        if task_mode in (6, 7, 8, 9):
+                            print("  ℹ️  현재 모드는 결과 입력 전용입니다. 터미널 ID 입력은 정보 입력 전용입니다.")
+                            continue
                         if navigate_to_competition(page, comp_id):
                             _save_auth(context, auth_path)
-                            ok = run_judges_input(page, load_judges_from_file())
-                            if not ok:
-                                print("\n❌ 브라우저 연결 끊김. 종료합니다.")
-                                break
-                        print("\n[공고파일 업로드]")
-                        ok, msg = upload_notice_files(page, comp_id)
-                        print(f"  {'✅' if ok else '❌'} {msg}")
-                        print("\n[발주처 입력]")
-                        run_organization_input(page, comp_id)
+                            # 심사위원  (mode: 1, 2, 3)
+                            if task_mode in (1, 2, 3):
+                                ok = run_judges_input(page, load_judges_from_file())
+                                if not ok:
+                                    print("\n❌ 브라우저 연결 끊김. 종료합니다.")
+                                    break
+                            # 공고파일  (mode: 1, 2, 4)
+                            if task_mode in (1, 2, 4):
+                                print("\n[공고파일 업로드]")
+                                ok, msg = upload_notice_files(page, comp_id)
+                                print(f"  {'✅' if ok else '❌'} {msg}")
+                            # 발주처  (mode: 1, 2, 5)
+                            if task_mode in (1, 2, 5):
+                                print("\n[발주처 입력]")
+                                run_organization_input(page, comp_id)
                     elif task_type == "info":
-                        run_info_task(page, context, auth_path, data)
+                        run_info_task(page, context, auth_path, data, task_mode)
                     else:
-                        run_result_task(page, context, auth_path, data)
+                        run_result_task(page, context, auth_path, data, task_mode)
                 except Exception as e:
                     print(f"❌ 처리 중 예외 발생: {e}")
 

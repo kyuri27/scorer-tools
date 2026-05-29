@@ -259,6 +259,11 @@ function checkPw() {
       <div id="manualJudgesPreview"></div>
     </div>
     <div style="margin-top:12px; padding-top:12px; border-top:1px solid #e0f2fe;">
+      <div style="font-size:12px; font-weight:600; color:#374151; margin-bottom:6px;">🏆 수상작 직접 입력 <span style="font-weight:400; color:#6b7280;">— JSON보다 우선 적용</span></div>
+      <textarea id="manualAwardsInput" oninput="previewManualAwards()" placeholder="구분, 참가번호, 설계사무소, 대표설계자&#10;당선작, 25, 이즈건축, 강중열&#10;입상작, 113, ㈜해마종합건축사사무소, 전권식&#10;&#10;참가번호 없을 경우:&#10;당선작, 이즈건축, 강중열&#10;입상작, ㈜해마종합건축사사무소, 전권식" style="min-height:80px; font-size:12px; width:100%; box-sizing:border-box; font-family:monospace;"></textarea>
+      <div id="manualAwardsPreview"></div>
+    </div>
+    <div style="margin-top:12px; padding-top:12px; border-top:1px solid #e0f2fe;">
       <div style="font-size:12px; font-weight:600; color:#374151; margin-bottom:8px;">🏢 발주처 직접 입력 <span style="font-weight:400; color:#6b7280;">— JSON보다 우선 적용</span></div>
       <input type="text" id="manualAgency" placeholder="예: 효자중학교, 서울특별시" style="font-size:13px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; width:100%; box-sizing:border-box;">
     </div>
@@ -1244,6 +1249,75 @@ function applyManualDates(data) {
   if (agencyVal)   data.agency       = agencyVal;
 }
 
+// ───── 수상작 직접 입력 파싱 ─────
+function parseAwardsText(text) {
+  if (!text || !text.trim()) return null;
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+  const awards = [];
+
+  for (const line of lines) {
+    const parts = line.split(',').map(p => p.trim()).filter(p => p);
+    if (parts.length < 2) continue;
+
+    const awardType = parts[0];
+    let num = '', office = '', designer = '';
+
+    // 2번째 필드가 숫자면 참가번호
+    if (/^\d+$/.test(parts[1])) {
+      num     = parts[1];
+      office  = parts[2] || '';
+      designer = parts[3] || '';
+    } else {
+      office   = parts[1] || '';
+      designer = parts[2] || '';
+    }
+
+    if (awardType) awards.push({ awardType, num, office, designer });
+  }
+
+  if (awards.length === 0) return null;
+
+  // pdfRank: 같은 구분 내 순번
+  const typePos = {};
+  awards.forEach(a => {
+    typePos[a.awardType] = (typePos[a.awardType] || 0) + 1;
+    a.pdfRank = typePos[a.awardType];
+    a.awardTypeSeumter = a.awardType;
+    a.awardTypePdf     = a.awardType;
+    a.numFromSeumter   = false;
+  });
+
+  return awards;
+}
+
+function getManualAwards() {
+  const text = document.getElementById('manualAwardsInput')?.value?.trim();
+  return parseAwardsText(text);
+}
+
+function previewManualAwards() {
+  const awards = getManualAwards();
+  const preview = document.getElementById('manualAwardsPreview');
+  if (!preview) return;
+  if (!awards || awards.length === 0) { preview.innerHTML = ''; return; }
+
+  const typeCounts = {};
+  awards.forEach(a => { typeCounts[a.awardType] = (typeCounts[a.awardType] || 0) + 1; });
+
+  let html = `<div style="margin-top:8px; font-size:11px; color:#0369a1; margin-bottom:4px;">✅ ${awards.length}개 인식됨</div>`;
+  html += `<table style="width:100%;border-collapse:collapse;font-size:12px;">`;
+  html += `<thead><tr style="background:#fffbeb;"><th style="padding:3px 8px;text-align:left;">구분</th><th style="padding:3px 8px;text-align:left;">정리명</th><th style="padding:3px 8px;text-align:left;">설계사무소</th><th style="padding:3px 8px;text-align:left;">대표설계자</th></tr></thead><tbody>`;
+  awards.forEach(a => {
+    const showRank = typeCounts[a.awardType] > 1;
+    const rank = showRank ? String(a.pdfRank) : '';
+    const t = a.awardType.replace(/\s+/g, '');
+    const label = a.num ? `${t}${rank}_${a.num}` : `${t}${rank}`;
+    html += `<tr><td style="padding:3px 8px;">${a.awardType}</td><td style="padding:3px 8px;font-weight:600;">${label}</td><td style="padding:3px 8px;">${a.office || '-'}</td><td style="padding:3px 8px;color:#6b7280;">${a.designer || '-'}</td></tr>`;
+  });
+  html += `</tbody></table>`;
+  preview.innerHTML = html;
+}
+
 // ───── 심사위원 직접 입력 파싱 ─────
 function parseJudgesText(text) {
   if (!text || !text.trim()) return null;
@@ -1468,23 +1542,40 @@ function renderSummary(s) {
     html += `<button onclick="downloadJudgesTxt()" style="margin-top:8px; background:#0891b2; padding:8px 16px; font-size:13px;">👥 심사위원 텍스트 다운로드</button>`;
   }
 
-  if (s.awards && s.awards.length) {
-    const hasImages = s.awards.some(a => a.imgBase64 || a.imgSrc);
+  // 수동 입력 수상작 우선, 없으면 JSON 데이터 사용
+  const manualAwards = getManualAwards();
+  const awardsToRender = manualAwards || s.awards || [];
+  if (manualAwards) {
+    // 수동 입력 시 원본 awards의 이미지 데이터를 순서대로 보존
+    manualAwards.forEach((a, i) => {
+      const orig = (s.awards || [])[i];
+      if (orig) {
+        if (orig.imgBase64) a.imgBase64 = orig.imgBase64;
+        if (orig.imgSrc)    a.imgSrc    = orig.imgSrc;
+        if (orig.imgMime)   a.imgMime   = orig.imgMime;
+      }
+    });
+    s.awards = manualAwards; // _currentData에도 반영
+  }
+
+  if (awardsToRender.length) {
+    const hasImages = awardsToRender.some(a => a.imgBase64 || a.imgSrc);
     html += `<h4>🏆 수상작</h4>`;
-    const seumterFallbackNums = s.awards.filter(a => a.numFromSeumter);
-    if (seumterFallbackNums.length > 0) {
-      html += `<div style="background:#fef9c3; border:1px solid #fbbf24; border-radius:6px; padding:8px 12px; margin-bottom:8px; font-size:12px; color:#92400e;">
-        ⚠️ <b>${seumterFallbackNums.length}개 수상작</b>의 참가번호를 PDF에서 찾지 못해 세움터 수상작 순서(1, 2, 3…)로 대체했습니다.
-      </div>`;
+    if (!manualAwards) {
+      const seumterFallbackNums = awardsToRender.filter(a => a.numFromSeumter);
+      if (seumterFallbackNums.length > 0) {
+        html += `<div style="background:#fef9c3; border:1px solid #fbbf24; border-radius:6px; padding:8px 12px; margin-bottom:8px; font-size:12px; color:#92400e;">
+          ⚠️ <b>${seumterFallbackNums.length}개 수상작</b>의 참가번호를 PDF에서 찾지 못해 세움터 수상작 순서(1, 2, 3…)로 대체했습니다.
+        </div>`;
+      }
     }
     html += `<table class="result-table"><thead><tr>${hasImages ? '<th style="width:80px">이미지</th>' : ''}<th>구분</th><th>정리명</th><th>설계사무소</th><th>대표설계자</th></tr></thead><tbody>`;
-    // PDF 구분명 기준 수량 집계 (1개뿐이면 등수 생략) — 정리명은 PDF 타입 우선
     const pdfTypeCounts = {};
-    s.awards.forEach(a => {
+    awardsToRender.forEach(a => {
       const t = a.awardTypePdf || a.awardTypeSeumter || a.awardType || '';
       pdfTypeCounts[t] = (pdfTypeCounts[t] || 0) + 1;
     });
-    s.awards.forEach(a => {
+    awardsToRender.forEach(a => {
       const imgTag = a.imgBase64
         ? `<img src="data:${a.imgMime || 'image/jpeg'};base64,${a.imgBase64}" style="width:72px;height:54px;object-fit:cover;border-radius:4px;">`
         : (a.imgSrc ? `<img src="${a.imgSrc}" style="width:72px;height:54px;object-fit:cover;border-radius:4px;">` : '-');
@@ -1495,8 +1586,10 @@ function renderSummary(s) {
       const showRank = pdfTypeCounts[rawLabelType] > 1;      // PDF 타입 기준으로 등수 표시 여부
       const rankSuffix = showRank ? String(a.pdfRank || '') : '';
       const label = a.num
-        ? `${labelType}${rankSuffix}_${a.num}`               // 최우수_5 or 입상작2_2
-        : `<span style="color:#d97706;" title="참가번호 없음">${labelType}${rankSuffix}</span>`;
+        ? `${labelType}${rankSuffix}_${a.num}`
+        : (manualAwards
+            ? `${labelType}${rankSuffix}`   // 수동 입력: 참가번호 없어도 경고 없이 표시
+            : `<span style="color:#d97706;" title="참가번호 없음">${labelType}${rankSuffix}</span>`);
       html += `<tr>${imgCell}<td>${seumterType}</td><td><b>${label}</b></td><td>${a.office || '-'}</td><td>${a.designer || '-'}</td></tr>`;
     });
     html += `</tbody></table>`;
@@ -1677,7 +1770,20 @@ async function runAwardInput() {
     }
   }
 
-  const uploadFiles = window._processedUploadFiles || [];
+  // 결과 파일: 처리된 파일 우선, 없으면 업로드된 원본 파일에서 직접 수집
+  let uploadFiles = (window._processedUploadFiles || []).filter(f => {
+    // 공고 파일(_processedNoticeFiles)은 제외하고 결과 파일만
+    const noticeNames = new Set((window._processedNoticeFiles || []).map(f => f.filename));
+    return !noticeNames.has(f.filename);
+  });
+  if (uploadFiles.length === 0 && typeof resultFiles !== 'undefined' && resultFiles.length > 0) {
+    // fallback: 업로드된 원본 resultFiles를 직접 base64로 변환
+    function toBase64Raw(buf) {
+      const bytes = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
+      let bin = ''; bytes.forEach(b => bin += String.fromCharCode(b)); return btoa(bin);
+    }
+    uploadFiles = resultFiles.map(f => ({ filename: f.name, data: toBase64Raw(f.arrayBuffer) }));
+  }
 
   // 심사위원 최종 참석 현황 (수동 변경 반영)
   const judges = (window._judgesData || []).map(j => ({
@@ -1702,11 +1808,13 @@ async function runAwardInput() {
     if (resp.ok) {
       const imgCount = images.length;
       const fileCount = uploadFiles.length;
+      const judgeCount = judges.length;
       alert(
         `✅ 전송 완료! 공모 결과 입력이 시작됩니다.\n` +
-        `공모전 ID: ${competitionId}` +
-        (imgCount  > 0 ? `\n수상작 이미지: ${imgCount}장` : '') +
-        (fileCount > 0 ? `\n업로드 파일: ${fileCount}개` : '')
+        `공모전 ID: ${competitionId}\n` +
+        `수상작 이미지: ${imgCount}장\n` +
+        `결과 파일: ${fileCount}개\n` +
+        `심사위원: ${judgeCount}명 (불참 ${judges.filter(j=>j.status==='불참').length}명)`
       );
     } else {
       alert(`서버 오류 (${resp.status}): ${await resp.text()}`);
