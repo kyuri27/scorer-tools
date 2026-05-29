@@ -231,144 +231,186 @@ function downloadJudgesTxt() {
 async function downloadAttachedFiles() {
   const btn = document.getElementById('downloadAttachedBtn');
   btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> 수집 중...';
 
   const files = extractedData['첨부파일_목록'] || [];
   const cName = (extractedData['설계공모명'] || extractedData['공모명'] || '공모').replace(/\s+/g, '_');
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
-  const zipFiles = [], failLog = [];
-
-  for (let i = 0; i < files.length; i++) {
-    btn.innerHTML = `<span class="spinner"></span> ${i + 1}/${files.length} 수집 중...`;
+  // 팝업에서 진행상황 표시 (페이지 변수 주기적으로 읽기)
+  const progressTimer = setInterval(async () => {
     try {
-      const [result] = await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        world: 'MAIN',
-        func: async (idx) => {
-          const btn = document.querySelector(`[data-hub-attached="${idx}"]`);
-          if (!btn) return { _dbg: `btn_not_found_${idx}` };
-
-          let blobPromise = null, blobCaptured = false;
-          let xhrDataPromise = null, xhrCaptured = false;
-          let fetchDataPromise = null, fetchCaptured = false;
-          let formUrl = null, formBody = null, formMethod = 'GET';
-          let windowOpenUrl = null;
-          let capturedFileName = null;
-
-          const origCOU    = URL.createObjectURL;
-          const origOpen   = XMLHttpRequest.prototype.open;
-          const origSend   = XMLHttpRequest.prototype.send;
-          const origFetch  = window.fetch;
-          const origSubmit = HTMLFormElement.prototype.submit;
-          const origWOpen  = window.open;
-
-          const isFileCt = c => /octet-stream|\/pdf|officedocument|hwp|zip/i.test(c);
-          const isFileCd = d => /attachment|filename/i.test(d);
-          const anyCaptured = () => blobCaptured || xhrCaptured || fetchCaptured || windowOpenUrl || formUrl;
-
-          URL.createObjectURL = function(blob) {
-            const url = origCOU.call(URL, blob);
-            if (!blobPromise && blob.size > 500) {
-              blobCaptured = true;
-              blobPromise = new Promise(res => {
-                const fr = new FileReader();
-                fr.onload = () => res(new Uint8Array(fr.result));
-                fr.onerror = () => res(null);
-                fr.readAsArrayBuffer(blob);
-              });
-            }
-            return url;
-          };
-          HTMLFormElement.prototype.submit = function() {
-            if (formUrl) return;
-            const method = (this.method || 'GET').toUpperCase();
-            const fd = new FormData(this);
-            formMethod = method;
-            if (method === 'POST') { formUrl = this.action; formBody = fd; }
-            else { formUrl = this.action + '?' + new URLSearchParams(fd).toString(); }
-          };
-          XMLHttpRequest.prototype.open = function(m, url, ...r) { this.__u = String(url); return origOpen.call(this, m, url, ...r); };
-          XMLHttpRequest.prototype.send = function(b) {
-            this.addEventListener('load', function() {
-              if (xhrCaptured) return;
-              const d = (this.getResponseHeader('content-disposition') || '').toLowerCase();
-              const c = (this.getResponseHeader('content-type') || '').toLowerCase();
-              if (isFileCd(d) || isFileCt(c)) {
-                xhrCaptured = true;
-                const fnM = d.match(/filename\*?\s*=\s*(?:utf-8'')?([^;\r\n]+)/i);
-                if (fnM) try { capturedFileName = decodeURIComponent(fnM[1].trim()); } catch {}
-                if (this.response instanceof ArrayBuffer && this.response.byteLength > 0) {
-                  xhrDataPromise = Promise.resolve(new Uint8Array(this.response));
-                } else if (this.response instanceof Blob && this.response.size > 0) {
-                  xhrDataPromise = new Promise(res => { const fr = new FileReader(); fr.onload = () => res(new Uint8Array(fr.result)); fr.readAsArrayBuffer(this.response); });
-                }
-              }
-            });
-            return origSend.call(this, b);
-          };
-          window.fetch = async function(url, opts) {
-            const resp = await origFetch.call(this, url, opts);
-            if (!fetchCaptured) {
-              const ct = (resp.headers.get('content-type') || '').toLowerCase();
-              const cd = (resp.headers.get('content-disposition') || '').toLowerCase();
-              if (isFileCd(cd) || isFileCt(ct)) {
-                fetchCaptured = true;
-                const fnM = cd.match(/filename\*?\s*=\s*(?:utf-8'')?([^;\r\n]+)/i);
-                if (fnM) try { capturedFileName = decodeURIComponent(fnM[1].trim()); } catch {}
-                fetchDataPromise = resp.clone().arrayBuffer().then(buf => new Uint8Array(buf));
-              }
-            }
-            return resp;
-          };
-          window.open = function(url, ...a) { if (url && url !== 'about:blank') { windowOpenUrl = String(url); return null; } return origWOpen.call(window, url, ...a); };
-
-          btn.click();
-          for (let t = 0; t < 40; t++) { await new Promise(r => setTimeout(r, 100)); if (anyCaptured()) break; }
-          await new Promise(r => setTimeout(r, 200));
-
-          URL.createObjectURL = origCOU;
-          HTMLFormElement.prototype.submit = origSubmit;
-          XMLHttpRequest.prototype.open = origOpen;
-          XMLHttpRequest.prototype.send = origSend;
-          window.fetch = origFetch;
-          window.open = origWOpen;
-
-          if (blobPromise) { const b = await blobPromise; if (b?.length > 0) return { data: Array.from(b), fileName: capturedFileName, _dbg: 'blob' }; }
-          if (xhrDataPromise) { const b = await xhrDataPromise; if (b?.length > 0) return { data: Array.from(b), fileName: capturedFileName, _dbg: 'xhr' }; }
-          if (fetchDataPromise) { const b = await fetchDataPromise; if (b?.length > 0) return { data: Array.from(b), fileName: capturedFileName, _dbg: 'fetch' }; }
-          if (formUrl) {
-            try {
-              const opts = { credentials: 'include', method: formMethod };
-              if (formMethod === 'POST' && formBody) opts.body = formBody;
-              const resp = await origFetch.call(window, formUrl, opts);
-              if (resp.ok) { const buf = await resp.arrayBuffer(); if (buf.byteLength > 0) return { data: Array.from(new Uint8Array(buf)), _dbg: 'form' }; }
-            } catch {}
-          }
-          if (windowOpenUrl) {
-            try {
-              const resp = await origFetch.call(window, windowOpenUrl, { credentials: 'include' });
-              if (resp.ok) { const buf = await resp.arrayBuffer(); if (buf.byteLength > 0) return { data: Array.from(new Uint8Array(buf)), _dbg: 'winopen' }; }
-            } catch {}
-          }
-          return { _dbg: 'nothing_captured' };
-        },
-        args: [i],
+      const [r] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id }, world: 'MAIN',
+        func: () => window.__hubAttachProgress ?? 0,
       });
+      const cur = r?.result || 0;
+      if (cur > 0) btn.innerHTML = `<span class="spinner"></span> ${cur}/${files.length} 수집 중...`;
+    } catch {}
+  }, 400);
 
-      const r = result?.result;
-      if (r?.data?.length > 0) {
-        const name = r.fileName || files[i].fileName || `파일_${i + 1}`;
-        zipFiles.push({ name, data: new Uint8Array(r.data) });
-      } else {
-        failLog.push(files[i].fileName);
+  // executeScript 한 번으로 전체 파일 순차 수집 (개별 호출 오버헤드 제거)
+  const [result] = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    world: 'MAIN',
+    func: async (fileCount) => {
+      const isFileCt = c => /octet-stream|\/pdf|officedocument|hwp|zip/i.test(c);
+      const isFileCd = d => /attachment|filename/i.test(d);
+
+      // 인터셉터 1회 설치
+      const origCOU    = URL.createObjectURL;
+      const origOpen   = XMLHttpRequest.prototype.open;
+      const origSend   = XMLHttpRequest.prototype.send;
+      const origFetch  = window.fetch;
+      const origSubmit = HTMLFormElement.prototype.submit;
+      const origWOpen  = window.open;
+      const origAClick = HTMLAnchorElement.prototype.click;
+
+      // 파일별 캡처 상태
+      let blobPromise = null, blobCaptured = false;
+      let xhrDataPromise = null, xhrCaptured = false;
+      let fetchDataPromise = null, fetchCaptured = false;
+      let formUrl = null, formBody = null, formMethod = 'GET';
+      let windowOpenUrl = null, capturedFileName = null;
+
+      const resetCapture = () => {
+        blobPromise = null; blobCaptured = false;
+        xhrDataPromise = null; xhrCaptured = false;
+        fetchDataPromise = null; fetchCaptured = false;
+        formUrl = null; formBody = null; formMethod = 'GET';
+        windowOpenUrl = null; capturedFileName = null;
+      };
+      const anyCaptured = () => blobCaptured || xhrCaptured || fetchCaptured || windowOpenUrl || formUrl;
+
+      URL.createObjectURL = function(blob) {
+        const url = origCOU.call(URL, blob);
+        if (!blobPromise && blob.size > 500) {
+          blobCaptured = true;
+          blobPromise = new Promise(res => { const fr = new FileReader(); fr.onload = () => res(new Uint8Array(fr.result)); fr.onerror = () => res(null); fr.readAsArrayBuffer(blob); });
+        }
+        return url;
+      };
+      HTMLAnchorElement.prototype.click = function() {
+        const href = this.href || '';
+        if (href.startsWith('blob:') || (href.startsWith('http') && href !== location.href)) {
+          if (!windowOpenUrl && !href.startsWith('blob:')) windowOpenUrl = href;
+          return;
+        }
+        origAClick.call(this);
+      };
+      HTMLFormElement.prototype.submit = function() {
+        if (formUrl) return;
+        const method = (this.method || 'GET').toUpperCase();
+        const fd = new FormData(this); formMethod = method;
+        if (method === 'POST') { formUrl = this.action; formBody = fd; }
+        else { formUrl = this.action + '?' + new URLSearchParams(fd).toString(); }
+      };
+      XMLHttpRequest.prototype.open = function(m, url, ...r) { this.__u = String(url); return origOpen.call(this, m, url, ...r); };
+      XMLHttpRequest.prototype.send = function(b) {
+        this.addEventListener('load', function() {
+          if (xhrCaptured) return;
+          const d = (this.getResponseHeader('content-disposition') || '').toLowerCase();
+          const c = (this.getResponseHeader('content-type') || '').toLowerCase();
+          if (isFileCd(d) || isFileCt(c)) {
+            xhrCaptured = true;
+            const fnM = d.match(/filename\*?\s*=\s*(?:utf-8'')?([^;\r\n]+)/i);
+            if (fnM) try { capturedFileName = decodeURIComponent(fnM[1].trim()); } catch {}
+            if (this.response instanceof ArrayBuffer && this.response.byteLength > 0) xhrDataPromise = Promise.resolve(new Uint8Array(this.response));
+            else if (this.response instanceof Blob && this.response.size > 0) xhrDataPromise = new Promise(res => { const fr = new FileReader(); fr.onload = () => res(new Uint8Array(fr.result)); fr.readAsArrayBuffer(this.response); });
+          }
+        });
+        return origSend.call(this, b);
+      };
+      window.fetch = async function(url, opts) {
+        const resp = await origFetch.call(this, url, opts);
+        if (!fetchCaptured) {
+          const ct = (resp.headers.get('content-type') || '').toLowerCase();
+          const cd = (resp.headers.get('content-disposition') || '').toLowerCase();
+          if (isFileCd(cd) || isFileCt(ct)) {
+            fetchCaptured = true;
+            const fnM = cd.match(/filename\*?\s*=\s*(?:utf-8'')?([^;\r\n]+)/i);
+            if (fnM) try { capturedFileName = decodeURIComponent(fnM[1].trim()); } catch {}
+            fetchDataPromise = resp.clone().arrayBuffer().then(buf => new Uint8Array(buf));
+          }
+        }
+        return resp;
+      };
+      window.open = function(url, ...a) { if (url && url !== 'about:blank') { windowOpenUrl = String(url); return null; } return origWOpen.call(window, url, ...a); };
+
+      // 파일별 순차 수집
+      window.__hubAttachProgress = 0;
+      const results = [];
+      for (let idx = 0; idx < fileCount; idx++) {
+        window.__hubAttachProgress = idx + 1;
+        resetCapture();
+        const dlBtn = document.querySelector(`[data-hub-attached="${idx}"]`);
+        if (!dlBtn) { results.push(null); continue; }
+
+        dlBtn.click();
+        // 캡처될 때까지 최대 2.5초 대기 (80ms × 30회)
+        for (let t = 0; t < 30; t++) {
+          await new Promise(r => setTimeout(r, 80));
+          if (anyCaptured()) break;
+        }
+        if (blobCaptured || xhrCaptured || fetchCaptured) await new Promise(r => setTimeout(r, 100));
+
+        let fileData = null, fileName = capturedFileName;
+        if (blobPromise)      { const b = await blobPromise;      if (b?.length > 0) fileData = b; }
+        if (!fileData && xhrDataPromise)   { const b = await xhrDataPromise;   if (b?.length > 0) fileData = b; }
+        if (!fileData && fetchDataPromise) { const b = await fetchDataPromise; if (b?.length > 0) fileData = b; }
+        if (!fileData && formUrl) {
+          try {
+            const opts = { credentials: 'include', method: formMethod };
+            if (formMethod === 'POST' && formBody) opts.body = formBody;
+            const resp = await origFetch.call(window, formUrl, opts);
+            if (resp.ok) { const buf = await resp.arrayBuffer(); if (buf.byteLength > 0) fileData = new Uint8Array(buf); }
+          } catch {}
+        }
+        if (!fileData && windowOpenUrl) {
+          try {
+            const resp = await origFetch.call(window, windowOpenUrl, { credentials: 'include' });
+            if (resp.ok) { const buf = await resp.arrayBuffer(); if (buf.byteLength > 0) fileData = new Uint8Array(buf); }
+          } catch {}
+        }
+        if (fileData) {
+          // Array.from 대신 base64로 인코딩 → IPC JSON 직렬화 속도 대폭 향상
+          let binary = '';
+          const chunk = 8192;
+          for (let i = 0; i < fileData.length; i += chunk)
+            binary += String.fromCharCode(...fileData.subarray(i, i + chunk));
+          results.push({ base64: btoa(binary), fileName });
+        } else {
+          results.push(null);
+        }
       }
-    } catch (e) {
-      failLog.push(files[i].fileName);
-    }
-  }
 
-  btn.disabled = false;
-  btn.innerHTML = '📦 첨부파일 ZIP 다운로드';
+      // 인터셉터 복원
+      URL.createObjectURL = origCOU; HTMLAnchorElement.prototype.click = origAClick;
+      HTMLFormElement.prototype.submit = origSubmit;
+      XMLHttpRequest.prototype.open = origOpen; XMLHttpRequest.prototype.send = origSend;
+      window.fetch = origFetch; window.open = origWOpen;
+
+      return results;
+    },
+    args: [files.length],
+  });
+
+  clearInterval(progressTimer);
+  btn.innerHTML = '<span class="spinner"></span> ZIP 생성 중...';
+  await new Promise(r => setTimeout(r, 30)); // 브라우저 렌더링 틈
+
+  const results = result?.result || [];
+  const zipFiles = [], failLog = [];
+  results.forEach((r, i) => {
+    if (r?.base64) {
+      const binary = atob(r.base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let j = 0; j < binary.length; j++) bytes[j] = binary.charCodeAt(j);
+      zipFiles.push({ name: r.fileName || files[i]?.fileName || `파일_${i + 1}`, data: bytes });
+    } else {
+      failLog.push(files[i]?.fileName || `파일_${i + 1}`);
+    }
+  });
 
   if (zipFiles.length > 0) {
     const zipBytes = buildZip(zipFiles);
@@ -377,9 +419,13 @@ async function downloadAttachedFiles() {
     const a    = document.createElement('a');
     a.href = url; a.download = `첨부파일_${cName}.zip`; a.click();
     URL.revokeObjectURL(url);
+    btn.disabled = false;
+    btn.innerHTML = '📦 첨부파일 ZIP 다운로드';
     const msg = `✅ ${zipFiles.length}개 ZIP 완료!` + (failLog.length ? `\n⚠️ 실패: ${failLog.join(', ')}` : '');
     showToast(msg);
   } else {
+    btn.disabled = false;
+    btn.innerHTML = '📦 첨부파일 ZIP 다운로드';
     showToast('⚠️ 파일을 가져오지 못했습니다.\n직접 다운로드해 주세요.');
   }
 }
