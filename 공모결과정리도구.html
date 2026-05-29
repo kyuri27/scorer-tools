@@ -741,7 +741,7 @@ async function runAnalysis() {
   const apiKey = document.getElementById('apiKey').value.trim();
   const model = document.getElementById('modelSelect').value;
   if (!apiKey) { alert('Gemini API 키를 입력해주세요.'); return; }
-  if (noticeFiles.length === 0 && resultFiles.length === 0) { alert('파일을 업로드해주세요.'); return; }
+  if (noticeFiles.length === 0 && resultFiles.length === 0 && !seumterData) { alert('파일을 업로드하거나 세움터 데이터를 먼저 불러와주세요.'); return; }
 
   const btn = document.getElementById('analyzeBtn');
   const stopBtn = document.getElementById('stopBtn');
@@ -789,11 +789,12 @@ async function runAnalysis() {
     }
     setProgress(30, `📤 인코딩 완료, Gemini에 전송 중...`);
 
-    // HWP만 업로드된 경우 → Gemini 분석 불필요, 이름 변경만 처리
+    // HWP만 업로드된 경우 또는 파일 미업로드 → Gemini 분석 불필요, 이름 변경만 처리
     const hasGeminiFiles = parts.length > 0;
     if (!hasGeminiFiles) {
-      setProgress(50, 'ℹ️ Gemini 분석 가능한 파일 없음 (HWP만 있음) → 이름 변경만 진행');
-      logProgress('ℹ️ PDF/이미지 파일 없음 — Gemini 분석 건너뜀, HWP 이름 변경만 적용', 'done');
+      const noFilesMsg = resultFiles.length === 0 ? '파일 없음 → 세움터 데이터로 이름 변경만 진행' : 'HWP만 있음 → 이름 변경만 진행';
+      setProgress(50, `ℹ️ Gemini 분석 가능한 파일 없음 (${noFilesMsg})`);
+      logProgress(`ℹ️ PDF/이미지 파일 없음 — Gemini 분석 건너뜀, ${resultFiles.length === 0 ? '세움터 데이터 기반 이름 변경 적용' : 'HWP 이름 변경만 적용'}`, 'done');
       const hwpData = {
         ...(seumterData || {}),
         judges_attended: [],
