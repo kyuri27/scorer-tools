@@ -242,7 +242,7 @@ function checkPw() {
   <!-- 2. 세움터 JSON 입력 (선택) -->
   <div class="card" style="border: 1px solid #a5f3fc; background: linear-gradient(to bottom, #f0fdff, white);">
     <h2><span class="num" style="background:#0891b2;">2</span> 공모 정보 입력 <span style="font-size:12px; font-weight:400; color:#6b7280; margin-left:6px;">선택 · 크롬 확장프로그램 사용 시</span></h2>
-    <p class="hint" style="margin-bottom:10px;">세움터 공모 추출기 확장프로그램에서 <b>"정리도구용 복사"</b>를 클릭한 뒤 아래에 붙여넣으세요. 공모 개요·심사위원 정보가 자동으로 채워집니다.</p>
+    <p class="hint" style="margin-bottom:10px;">공모 추출기 확장프로그램에서 <b>"정리도구용 복사"</b>를 클릭한 뒤 아래에 붙여넣으세요. 공모 개요·심사위원 정보가 자동으로 채워집니다.</p>
     <textarea id="seumterJsonInput" placeholder='{"competitionName": "...", "judges_planned": [...], ...}' style="min-height:100px; font-size:12px;"></textarea>
     <div style="display:flex; gap:8px; margin-top:8px;">
       <button onclick="applySeumterJSON()" style="flex:1;">✅ 공모 정보 적용</button>
@@ -321,7 +321,7 @@ function checkPw() {
   <!-- 4. 자동 분석 -->
   <div class="card">
     <h2><span class="num">4</span> 자동 분석</h2>
-    <p class="hint" style="margin-bottom:12px;">Gemini가 모든 파일을 읽고 공모 정보·심사위원·수상작·PDF 페이지별 헤드라인을 한 번에 추출합니다. 세움터에서 공모 정보를 미리 입력했다면 PDF 페이지 분석만 진행합니다.</p>
+    <p class="hint" style="margin-bottom:12px;">Gemini가 모든 파일을 읽고 공모 정보·심사위원·수상작·PDF 페이지별 헤드라인을 한 번에 추출합니다. 공모 정보를 미리 입력했다면 PDF 페이지 분석만 진행합니다.</p>
     <button class="large" id="analyzeBtn" onclick="runAnalysis()">🚀 자동 분석 시작</button>
     <button id="stopBtn" onclick="stopAnalysis()" style="display:none; margin-left:10px; background:#ef4444; color:white; padding:10px 22px; font-size:14px; border-radius:8px; border:none; cursor:pointer; font-weight:600;">⏹ 분석 중지</button>
     <div id="progressArea"></div>
@@ -741,7 +741,7 @@ async function runAnalysis() {
   const apiKey = document.getElementById('apiKey').value.trim();
   const model = document.getElementById('modelSelect').value;
   if (!apiKey) { alert('Gemini API 키를 입력해주세요.'); return; }
-  if (noticeFiles.length === 0 && resultFiles.length === 0 && !seumterData) { alert('파일을 업로드하거나 세움터 데이터를 먼저 불러와주세요.'); return; }
+  if (noticeFiles.length === 0 && resultFiles.length === 0 && !seumterData) { alert('파일을 업로드하거나 공모 정보를 먼저 불러와주세요.'); return; }
 
   const btn = document.getElementById('analyzeBtn');
   const stopBtn = document.getElementById('stopBtn');
@@ -1490,7 +1490,7 @@ function renderSummary(s) {
   // 세움터 이름 기준으로 참석 여부 결정
   const judges = seumterJudges.map(j => {
     const match = normalizedAttended.find(n => n.seumterName === j.name);
-    let status = match ? '참석' : '불참';
+    let status = match ? '참석' : (pdfAttended.length > 0 ? '불참' : '참석');
     if (j.name === s.chairperson) status = '위원장';
     const pdfNameDiff = match && match.pdfName ? match.pdfName : null;
     const type = j.type || '외부'; // type 비어있으면 외부로 기본값
@@ -1566,7 +1566,7 @@ function renderSummary(s) {
       const seumterFallbackNums = awardsToRender.filter(a => a.numFromSeumter);
       if (seumterFallbackNums.length > 0) {
         html += `<div style="background:#fef9c3; border:1px solid #fbbf24; border-radius:6px; padding:8px 12px; margin-bottom:8px; font-size:12px; color:#92400e;">
-          ⚠️ <b>${seumterFallbackNums.length}개 수상작</b>의 참가번호를 PDF에서 찾지 못해 세움터 수상작 순서(1, 2, 3…)로 대체했습니다.
+          ⚠️ <b>${seumterFallbackNums.length}개 수상작</b>의 참가번호를 PDF에서 찾지 못해 수상작 순서(1, 2, 3…)로 대체했습니다.
         </div>`;
       }
     }
