@@ -1220,15 +1220,16 @@ def _open_browser(p, auth_path: Path):
 # 실행 모드
 # ============================================================
 
-def _run_combined_mode(page, context, auth_path: Path):
+def _run_combined_mode(page, context, auth_path: Path, server=None):
     """
     터미널 입력과 HTML 버튼을 동시에 대기.
     - 공모 ID 입력 후 엔터 → 공모 정보 입력 (심사위원 + 공고파일 + 발주처)
     - HTML '공모 정보 입력하기' 클릭 → 공모 정보 입력
     - HTML '공모 결과 입력하기' 클릭 → 공모 결과 입력
     """
-    server = start_local_server()
-    print(f"\n🌐 서버 준비 완료 (포트 {SERVER_PORT})")
+    if server is None:
+        server = start_local_server()
+        print(f"\n🌐 서버 준비 완료 (포트 {SERVER_PORT})")
     print("   HTML 도구 '공모 정보 입력하기' / '공모 결과 입력하기' 버튼 대기 중\n")
 
     comp_no = 1
@@ -1305,10 +1306,14 @@ def main():
 
     auth_path = SCRIPT_DIR / AUTH_FILE
 
+    # 브라우저 열기 전에 서버 먼저 시작 (로그인 대기 중에도 버튼 클릭 가능)
+    server = start_local_server()
+    print(f"\n🌐 서버 준비 완료 (포트 {SERVER_PORT})")
+
     with sync_playwright() as p:
         browser, context, page = _open_browser(p, auth_path)
         try:
-            _run_combined_mode(page, context, auth_path)
+            _run_combined_mode(page, context, auth_path, server=server)
         finally:
             print("\n>>> 브라우저를 닫으려면 엔터를 누르세요.")
             try:
