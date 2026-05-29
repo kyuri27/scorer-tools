@@ -1767,7 +1767,7 @@ async function runAwardInput() {
 
     if (base64) {
       const label = buildAwardLabel(a, typeCounts);
-      const office = (a.office || '').replace(/[\\/:*?"<>|]/g, '').trim();
+      const office = (a.office || '').replace(/\(주\)|㈜|\(株\)/gi, '').replace(/[\\/:*?"<>|]/g, '').trim();
       const ext = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg';
       const filename = office ? `${label}_${office}.${ext}` : `${label}.${ext}`;
       images.push({ filename, data: base64, mime });
@@ -1808,7 +1808,7 @@ async function runAwardInput() {
             const ext = matched.filename.split('.').pop().toLowerCase();
             const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
             const label = buildAwardLabel(a, typeCounts);
-            const office = (a.office || '').replace(/[\\/:*?"<>|]/g, '').trim();
+            const office = (a.office || '').replace(/\(주\)|㈜|\(株\)/gi, '').replace(/[\\/:*?"<>|]/g, '').trim();
             const filename = office ? `${label}_${office}.${ext}` : `${label}.${ext}`;
             images.push({ filename, data: matched.data, mime });
             usedFiles.add(matched);
@@ -1822,7 +1822,7 @@ async function runAwardInput() {
             const ext = f.filename.split('.').pop().toLowerCase();
             const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
             const label = buildAwardLabel(a, typeCounts);
-            const office = (a.office || '').replace(/[\\/:*?"<>|]/g, '').trim();
+            const office = (a.office || '').replace(/\(주\)|㈜|\(株\)/gi, '').replace(/[\\/:*?"<>|]/g, '').trim();
             const filename = office ? `${label}_${office}.${ext}` : `${label}.${ext}`;
             images.push({ filename, data: f.data, mime });
           });
@@ -1954,7 +1954,7 @@ async function downloadAwardImagesZip() {
       const showRank = typeCount > 1;
       const rankSuffix = showRank ? String(a.pdfRank || '') : '';
       const label = a.num ? `${labelType}${rankSuffix}_${a.num}` : `${labelType}${rankSuffix}`;
-      const office = (a.office || '').replace(/[\\/:"*?<>|]/g, '').trim();
+      const office = (a.office || '').replace(/\(주\)|㈜|\(株\)/gi, '').replace(/[\\/:"*?<>|]/g, '').trim();
       files.push({ name: (office ? `${label}_${office}` : label) + `.${ext}`, data: bytes });
     } catch (e) { console.warn('이미지 처리 실패:', e); }
   }
