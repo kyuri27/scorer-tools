@@ -614,13 +614,39 @@ ADMIN_SUFFIXES = [
     "시", "군", "구", "도",
 ]
 
+# 검색 시 제거할 기관 접미사 (학교·공공기관 등)
+ORG_SUFFIXES = [
+    "초등학교", "중학교", "고등학교", "대학교", "대학원", "학교",
+    "교육청", "교육지원청",
+    "공사", "공단", "재단", "연구원", "연구소",
+    "센터", "본부", "청", "원",
+]
+
 def extract_search_keyword(name: str) -> str:
-    for sfx in ADMIN_SUFFIXES:
+    """발주처 이름에서 핵심 검색 키워드 추출 (행정·기관 접미사 제거)"""
+    for sfx in ADMIN_SUFFIXES + ORG_SUFFIXES:
         if name.endswith(sfx):
             kw = name[:-len(sfx)].strip()
             if kw:
                 return kw
     return name
+
+
+def _wait_for_org_table(page):
+    """DataTable 필터 완료 대기 (1행 이상 + 2회 연속 안정)"""
+    page.wait_for_timeout(200)
+    _prev_rc = -1
+    _stable = 0
+    for _ in range(28):
+        page.wait_for_timeout(100)
+        _cur_rc = page.locator('#dataTable tbody tr').count()
+        if _cur_rc > 0 and _cur_rc == _prev_rc:
+            _stable += 1
+            if _stable >= 2:
+                break
+        else:
+            _stable = 0
+        _prev_rc = _cur_rc
 
 
 def _search_org_and_select(page, search_term, original_name) -> bool:
@@ -629,11 +655,14 @@ def _search_org_and_select(page, search_term, original_name) -> bool:
     sb.click()
     sb.fill("")
     sb.fill(search_term)
-    page.wait_for_timeout(SEARCH_WAIT_MS)
+    _wait_for_org_table(page)
 
     rows = page.locator('#dataTable tbody tr')
     rc = rows.count()
-    if rc == 0 or "No data" in rows.nth(0).inner_text():
+    if rc == 0:
+        return False
+    first_text = rows.nth(0).inner_text()
+    if "No data" in first_text or ("데이터" in first_text and "없" in first_text):
         return False
 
     if rc == 1:
@@ -656,6 +685,7 @@ def _search_org_and_select(page, search_term, original_name) -> bool:
     btn.first.click(timeout=5000)
     page.wait_for_timeout(ACTION_WAIT_MS)
     return True
+
 
 
 def run_organization_input(page, comp_id: str, agency: str = None):
