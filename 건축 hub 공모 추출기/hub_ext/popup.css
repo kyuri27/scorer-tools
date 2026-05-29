@@ -1,0 +1,107 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
+  width: 360px; min-height: 200px;
+  background: #f5f6f8; color: #1a1a1a; font-size: 13px;
+}
+
+/* ── 헤더 ── */
+.header {
+  background: #0e7490; color: white; padding: 14px 16px;
+}
+.header-row { display: flex; justify-content: space-between; align-items: center; }
+.header h1 { font-size: 15px; font-weight: 600; }
+.header p { font-size: 11px; opacity: 0.8; margin-top: 2px; }
+
+/* ── 본문 / 푸터 ── */
+.body { padding: 14px; }
+.footer {
+  text-align: center; font-size: 10px; color: #9ca3af;
+  padding: 6px 0 8px; border-top: 1px solid #e5e7eb;
+}
+
+/* ── 버튼 ── */
+button {
+  width: 100%; padding: 10px; background: #0e7490; color: white;
+  border: none; border-radius: 6px; cursor: pointer; font-size: 14px;
+  font-weight: 500; font-family: inherit;
+}
+button:hover { background: #0c6478; }
+button:disabled { background: #d1d5db; cursor: not-allowed; }
+button.secondary { background: #6b7280; }
+button.secondary:hover { background: #4b5563; }
+button.green { background: #10b981; }
+button.green:hover { background: #059669; }
+
+/* ── 상태 메시지 ── */
+.status {
+  margin-top: 10px; padding: 8px 10px; border-radius: 6px;
+  font-size: 12px; line-height: 1.5;
+}
+.status.error   { background: #fee2e2; color: #991b1b; }
+.status.success { background: #ccfbf1; color: #134e4a; }
+
+/* ── 결과 섹션 ── */
+.result-section { margin-top: 12px; }
+.result-section h3 {
+  font-size: 12px; font-weight: 600; color: #374151;
+  margin-bottom: 6px; padding-bottom: 4px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.field { margin-bottom: 5px; }
+.field .key { color: #6b7280; font-size: 11px; }
+.field .val { font-weight: 500; font-size: 12px; word-break: break-all; }
+
+/* ── 심사위원 ── */
+.judge-item {
+  background: white; padding: 6px 8px; border-radius: 4px;
+  margin-bottom: 4px; border: 1px solid #e5e7eb; font-size: 11px;
+}
+.judge-item .name { font-weight: 600; }
+.judge-item .sub  { color: #6b7280; }
+.pill {
+  display: inline-block; padding: 1px 6px; border-radius: 8px;
+  font-size: 10px; font-weight: 500; margin-left: 4px;
+}
+.pill-external { background: #ccfbf1; color: #0f766e; }
+.pill-reserve  { background: #fef3c7; color: #92400e; }
+
+/* ── 수상작품 ── */
+.award-item {
+  display: flex; gap: 8px; align-items: flex-start;
+  background: white; padding: 8px; border-radius: 6px;
+  border: 1px solid #e5e7eb; margin-bottom: 6px;
+}
+.award-thumb {
+  width: 72px; height: 54px; object-fit: cover;
+  border-radius: 4px; flex-shrink: 0;
+}
+.award-info { flex: 1; }
+.award-type    { font-weight: 600; font-size: 12px; color: #0e7490; }
+.award-office  { font-size: 12px; margin-top: 2px; }
+.award-designer { font-size: 11px; color: #6b7280; margin-top: 2px; }
+
+/* ── 미지원 안내 ── */
+.not-supported { padding: 20px; text-align: center; color: #6b7280; }
+.not-supported .icon { font-size: 32px; margin-bottom: 8px; }
+
+/* ── 스피너 ── */
+.spinner {
+  display: inline-block; width: 12px; height: 12px;
+  border: 2px solid #99f6e4; border-top-color: #0e7490;
+  border-radius: 50%; animation: spin 0.8s linear infinite;
+  vertical-align: middle; margin-right: 4px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── 액션 버튼 묶음 ── */
+.actions { display: flex; gap: 6px; margin-top: 8px; }
+.actions button { font-size: 12px; padding: 7px; }
+
+/* ── 토스트 ── */
+.toast {
+  position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%);
+  background: #1e293b; color: white; padding: 8px 14px;
+  border-radius: 8px; font-size: 12px; white-space: pre-line;
+  z-index: 9999; opacity: 0.95; pointer-events: none;
+}

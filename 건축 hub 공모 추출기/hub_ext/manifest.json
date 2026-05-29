@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "건축 Hub 공모 추출기",
+  "version": "1.0",
+  "description": "hub.go.kr 건축 공모 정보 자동 추출 (심사위원, 수상작품, 정리도구 복사)",
+  "permissions": ["activeTab", "scripting", "clipboardWrite", "storage", "downloads"],
+  "host_permissions": ["*://*.hub.go.kr/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon_16.png",
+      "48": "icon_48.png",
+      "128": "icon_128.png"
+    }
+  },
+  "icons": {
+    "16": "icon_16.png",
+    "48": "icon_48.png",
+    "128": "icon_128.png"
+  }
+}
