@@ -715,12 +715,14 @@ def run_info_task(page, context, auth_path: Path, data: dict):
 
     judges = load_judges_from_payload(judges_raw)
 
+    # 항상 페이지 이동 먼저
+    if not navigate_to_competition(page, comp_id):
+        return
+    _save_auth(context, auth_path)
+
     # 심사위원
     if judges:
         print(f"\n[심사위원 입력] {len(judges)}명")
-        if not navigate_to_competition(page, comp_id):
-            return
-        _save_auth(context, auth_path)
         ok = run_judges_input(page, judges)
         if not ok:
             print("\n❌ 브라우저 연결 끊김")
@@ -743,6 +745,7 @@ def run_info_task(page, context, auth_path: Path, data: dict):
         run_organization_input(page, comp_id, agency=agency)
     else:
         print("\n[발주처 입력] 전달받은 발주처 없음, 건너뜁니다.")
+
 
 
 # ============================================================
@@ -1220,15 +1223,16 @@ def _open_browser(p, auth_path: Path):
 # 실행 모드
 # ============================================================
 
-def _run_combined_mode(page, context, auth_path: Path):
+def _run_combined_mode(page, context, auth_path: Path, server=None):
     """
     터미널 입력과 HTML 버튼을 동시에 대기.
     - 공모 ID 입력 후 엔터 → 공모 정보 입력 (심사위원 + 공고파일 + 발주처)
     - HTML '공모 정보 입력하기' 클릭 → 공모 정보 입력
     - HTML '공모 결과 입력하기' 클릭 → 공모 결과 입력
     """
-    server = start_local_server()
-    print(f"\n🌐 서버 준비 완료 (포트 {SERVER_PORT})")
+    if server is None:
+        server = start_local_server()
+        print(f"\n🌐 서버 준비 완료 (포트 {SERVER_PORT})")
     print("   HTML 도구 '공모 정보 입력하기' / '공모 결과 입력하기' 버튼 대기 중\n")
 
     comp_no = 1
@@ -1305,20 +1309,82 @@ def main():
 
     auth_path = SCRIPT_DIR / AUTH_FILE
 
+    server = start_local_server()
+    print(f"\n🌐 서버 준비 완료 (포트 {SERVER_PORT})")
+    print("   공모 ID 입력 후 엔터  또는  HTML 도구에서 버튼 클릭  (종료: q)\n")
+
     with sync_playwright() as p:
-        browser, context, page = _open_browser(p, auth_path)
+        browser = None
+        context = None
+        page    = None
+        comp_no = 1
+
         try:
-            _run_combined_mode(page, context, auth_path)
+            while True:
+                print("─" * 60)
+                print("공모 ID 입력 후 엔터  또는  HTML 도구에서 버튼 클릭  (종료: q)")
+                print("─" * 60)
+                print(">>> ", end="", flush=True)
+
+                task_type, data = _wait_for_trigger()
+
+                # 종료
+                if task_type == "keyboard" and str(data).strip().lower() == "q":
+                    print("\n>>> 종료합니다. 수고하셨습니다! 👋")
+                    break
+
+                # 첫 트리거 시점에 브라우저 열기 (로그인 포함)
+                if browser is None:
+                    browser, context, page = _open_browser(p, auth_path)
+
+                labels = {"keyboard": "정보 입력 (터미널)", "info": "정보 입력 (HTML)", "result": "결과 입력 (HTML)"}
+                print(f"\n{'█' * 60}")
+                print(f"█ {comp_no}번째 공모 — {labels.get(task_type, task_type)}")
+                print("█" * 60)
+
+                try:
+                    if task_type == "keyboard":
+                        comp_id = str(data).strip()
+                        if not comp_id.isdigit():
+                            if comp_id:
+                                print(f"\n⚠️  숫자만 입력해주세요. (입력값: '{comp_id}')")
+                            continue
+                        if navigate_to_competition(page, comp_id):
+                            _save_auth(context, auth_path)
+                            ok = run_judges_input(page, load_judges_from_file())
+                            if not ok:
+                                print("\n❌ 브라우저 연결 끊김. 종료합니다.")
+                                break
+                        print("\n[공고파일 업로드]")
+                        ok, msg = upload_notice_files(page, comp_id)
+                        print(f"  {'✅' if ok else '❌'} {msg}")
+                        print("\n[발주처 입력]")
+                        run_organization_input(page, comp_id)
+                    elif task_type == "info":
+                        run_info_task(page, context, auth_path, data)
+                    else:
+                        run_result_task(page, context, auth_path, data)
+                except Exception as e:
+                    print(f"❌ 처리 중 예외 발생: {e}")
+
+                _save_auth(context, auth_path)
+                comp_no += 1
+
         finally:
-            print("\n>>> 브라우저를 닫으려면 엔터를 누르세요.")
             try:
-                input()
+                server.shutdown()
             except Exception:
                 pass
-            try:
-                browser.close()
-            except Exception:
-                pass
+            if browser:
+                print("\n>>> 브라우저를 닫으려면 엔터를 누르세요.")
+                try:
+                    input()
+                except Exception:
+                    pass
+                try:
+                    browser.close()
+                except Exception:
+                    pass
 
 
 if __name__ == "__main__":
