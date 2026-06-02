@@ -321,52 +321,16 @@ window.__seumterMsgHandler = (request, sender, sendResponse) => {
     if (el) { el.click(); sendResponse({ success: true }); }
     else sendResponse({ success: false, error: '요소 없음' });
   } else if (request.action === 'clickResultNotice') {
-    (async () => {
-      const btn = document.querySelector('[data-seumter-result-notice]');
-      if (!btn) { sendResponse({ url: '' }); return; }
-      let captured = '';
-      const capture = (url) => {
-        if (!captured && url && url !== 'about:blank' && !url.startsWith('blob:') && !url.startsWith('javascript:'))
-          captured = /^https?:\/\//.test(url) ? url : new URL(url, location.origin).href;
-      };
+    const btn = document.querySelector('[data-seumter-result-notice]');
+    if (!btn) { sendResponse({ url: '' }); return true; }
 
-      const origPush    = history.pushState.bind(history);
-      const origReplace = history.replaceState.bind(history);
-      const origOpen    = window.open;
-      const origAlert   = window.alert;
-      const origAClick  = HTMLAnchorElement.prototype.click;
-
-      // <a target="_blank"> 네이티브 클릭 차단 (capture phase)
-      const anchorGuard = (e) => {
-        const a = e.target.closest('a[href]');
-        if (!a) return;
-        capture(a.href);
-        e.preventDefault();
-        e.stopImmediatePropagation();
-      };
-
-      window.alert         = () => {};
-      history.pushState    = (s, t, url) => capture(url);
-      history.replaceState = (s, t, url) => capture(url);
-      window.open          = (url, ...a) => { capture(url); return null; };
-      HTMLAnchorElement.prototype.click = function() {
-        capture(this.href); // href 캡처 후 열기 차단
-      };
-      document.addEventListener('click', anchorGuard, true);
-
-      btn.click();
-      await new Promise(r => setTimeout(r, 400));
-
-      // 복원
-      history.pushState    = origPush;
-      history.replaceState = origReplace;
-      window.open          = origOpen;
-      window.alert         = origAlert;
-      HTMLAnchorElement.prototype.click = origAClick;
-      document.removeEventListener('click', anchorGuard, true);
-
-      sendResponse({ url: captured });
-    })();
+    // 클릭 없이 앵커 href에서 URL 직접 읽기
+    let url = '';
+    const anchor = btn.closest('a[href]') || btn.querySelector('a[href]');
+    if (anchor?.href && !anchor.href.startsWith('javascript:')) {
+      url = anchor.href;
+    }
+    sendResponse({ url });
   }
   return true;
 };

@@ -452,7 +452,8 @@ function renderResultSeumter(data) {
         field.innerHTML = url
           ? `<a href="${url}" target="_blank" style="font-size:11px; color:#2563eb; word-break:break-all;">${url}</a>`
           : `<div class="val" style="font-size:10px; color:#9ca3af;">자동 추출 불가 — 페이지에서 직접 확인하세요</div>`;
-        // 탭 자동 열기 없음 — 팝업의 링크를 직접 클릭해서 이동
+        // URL 성공 시 백그라운드 탭으로 열기 (현재 탭·팝업 유지)
+        if (url) chrome.tabs.create({ url, active: false });
       });
     });
   }, { once: false });
