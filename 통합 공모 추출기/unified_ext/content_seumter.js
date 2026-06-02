@@ -325,20 +325,46 @@ window.__seumterMsgHandler = (request, sender, sendResponse) => {
       const btn = document.querySelector('[data-seumter-result-notice]');
       if (!btn) { sendResponse({ url: '' }); return; }
       let captured = '';
+      const capture = (url) => {
+        if (!captured && url && url !== 'about:blank' && !url.startsWith('blob:') && !url.startsWith('javascript:'))
+          captured = /^https?:\/\//.test(url) ? url : new URL(url, location.origin).href;
+      };
+
       const origPush    = history.pushState.bind(history);
       const origReplace = history.replaceState.bind(history);
       const origOpen    = window.open;
       const origAlert   = window.alert;
-      window.alert = () => {};
-      history.pushState    = (s, t, url) => { if (!captured && url) captured = new URL(url, location.origin).href; };
-      history.replaceState = (s, t, url) => { if (!captured && url) captured = new URL(url, location.origin).href; };
-      window.open          = (url, ...a) => { if (!captured && url && url !== 'about:blank') { captured = url; return null; } return origOpen.call(window, url, ...a); };
+      const origAClick  = HTMLAnchorElement.prototype.click;
+
+      // <a target="_blank"> 네이티브 클릭 차단 (capture phase)
+      const anchorGuard = (e) => {
+        const a = e.target.closest('a[href]');
+        if (!a) return;
+        capture(a.href);
+        e.preventDefault();
+        e.stopImmediatePropagation();
+      };
+
+      window.alert         = () => {};
+      history.pushState    = (s, t, url) => capture(url);
+      history.replaceState = (s, t, url) => capture(url);
+      window.open          = (url, ...a) => { capture(url); return null; };
+      HTMLAnchorElement.prototype.click = function() {
+        capture(this.href); // href 캡처 후 열기 차단
+      };
+      document.addEventListener('click', anchorGuard, true);
+
       btn.click();
       await new Promise(r => setTimeout(r, 400));
+
+      // 복원
       history.pushState    = origPush;
       history.replaceState = origReplace;
       window.open          = origOpen;
       window.alert         = origAlert;
+      HTMLAnchorElement.prototype.click = origAClick;
+      document.removeEventListener('click', anchorGuard, true);
+
       sendResponse({ url: captured });
     })();
   }
