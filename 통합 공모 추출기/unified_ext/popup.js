@@ -445,14 +445,15 @@ function renderResultSeumter(data) {
       if (chrome.runtime.lastError) { /* 무시 */ }
       const url = resp?.url || '';
       extractedData['심사결과공고_링크'] = url;
-      chrome.storage.session.set({ extractedData });
-      const field = document.getElementById('resultNoticeUrlField');
-      if (field) {
+      // 저장 완료 콜백 안에서 UI 업데이트 (저장 전 팝업 닫힘 방지)
+      chrome.storage.session.set({ extractedData }, () => {
+        const field = document.getElementById('resultNoticeUrlField');
+        if (!field) return;
         field.innerHTML = url
           ? `<a href="${url}" target="_blank" style="font-size:11px; color:#2563eb; word-break:break-all;">${url}</a>`
           : `<div class="val" style="font-size:10px; color:#9ca3af;">자동 추출 불가 — 페이지에서 직접 확인하세요</div>`;
-      }
-      if (url) chrome.tabs.create({ url, active: false });
+        // 탭 자동 열기 없음 — 팝업의 링크를 직접 클릭해서 이동
+      });
     });
   }, { once: false });
 }
