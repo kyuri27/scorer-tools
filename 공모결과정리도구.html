@@ -820,6 +820,20 @@ async function runAnalysis() {
     }
     setProgress(30, `📤 인코딩 완료, Gemini에 전송 중...`);
 
+    // judges_planned 없을 때 공고 파일도 Gemini에 전송 (심사위원 명단 추출용)
+    const needJudgesFromNotice = noticeFiles.length > 0 &&
+      (!seumterData || (seumterData.judges_planned || []).length === 0);
+    logProgress(`[dbg] noticeFiles=${noticeFiles.length}, judges_planned=${(seumterData?.judges_planned||[]).length}, needJudges=${needJudgesFromNotice}`);
+    if (needJudgesFromNotice) {
+      logProgress('ℹ️ 심사위원 명단 없음 → 공고 파일에서 추출 시도');
+      for (const f of noticeFiles) {
+        if (f.type === 'hwp') { logProgress(`   • ${f.name} → HWP (건너뜀)`); continue; }
+        logProgress(`   • 공고 파일 인코딩: ${f.name}`);
+        parts.push({ inlineData: { mimeType: f.mimeType, data: arrayBufferToBase64(f.arrayBuffer) } });
+        parts.push({ text: `[공고 파일: ${f.name}]` });
+      }
+    }
+
     // HWP만 업로드된 경우 또는 파일 미업로드 → Gemini 분석 불필요, 이름 변경만 처리
     const hasGeminiFiles = parts.length > 0;
     if (!hasGeminiFiles) {
@@ -858,6 +872,7 @@ async function runAnalysis() {
       const fileNameList = resultFiles.map((f, i) => `${i+1}. ${f.name}`).join('\n');
 
       const plannedJudgeNames = (seumterData.judges_planned || []).map(j => j.name).filter(Boolean).join(', ');
+      const hasPlannedJudges = plannedJudgeNames.length > 0;
 
       parts.push({
         text: `첨부된 PDF 파일들을 분석해서 다음 정보를 JSON 하나로만 응답해주세요. 설명 없이 JSON만 출력하세요.
@@ -870,12 +885,17 @@ ${awardTypeSummary}
 → 위 순서와 동일하게 awards 배열에 참가번호(심사번호)와 이미지 위치(imageFile/imagePage/imageIndex)를 채워주세요.
 → num(참가번호)은 문서에서 명확히 확인된 번호만 적고, 찾을 수 없으면 반드시 ""(빈 문자열)로 두세요. 임의의 순번(1, 2, 3...)을 넣지 마세요.
 
-[참고: 세움터에서 확인된 심사위원 명단]
+${hasPlannedJudges
+  ? `[참고: 세움터에서 확인된 심사위원 명단]
 ${plannedJudgeNames}
-→ judges_attended는 반드시 이 명단에 있는 이름만 포함하세요. 설계사무소, 참가자, 응모자 등 심사위원이 아닌 사람의 이름은 절대 포함하지 마세요.
+→ judges_attended는 반드시 이 명단에 있는 이름만 포함하세요. 설계사무소, 참가자, 응모자 등 심사위원이 아닌 사람의 이름은 절대 포함하지 마세요.`
+  : `[심사위원 명단 추출 필요]
+공고 파일([공고 파일: ...] 표시된 파일)에서 심사위원 명단(judges_planned)을 추출하세요.
+- judges_planned: 외부위원과 예비위원을 구분해서 [{type, name, org}] 형식으로 추출
+- judges_attended: 결과 파일의 심사평가표·심사의결서에 이름이 등장하는 위원만 포함`}
 
 [규칙]
-- judges_attended: 위 심사위원 명단에 있는 사람 중 심사평가표·심사의결서에 이름이 등장하는 위원만 (서명 여부 무관하게 문서에 이름이 있으면 참석)
+- judges_attended: ${hasPlannedJudges ? '위 심사위원 명단에 있는 사람 중 심사평가표·심사의결서에 이름이 등장하는 위원만 (서명 여부 무관하게 문서에 이름이 있으면 참석)' : '심사평가표·심사의결서에 이름이 등장하는 위원만'}
 - chairperson: 심사의결서에서 위원장 성명
 - announceDate: 당선작 발표일 (YYYY-MM-DD)
 - awards: 각 수상작의 구분명(awardType), 참가번호(심사번호), 설계사무소(office), 대표설계자(designer)를 함께 추출. awardType은 수상 결과표의 '구분' 열에 적힌 값을 그대로 사용 (예: 당선자, 2위, 3위, 우수작 등). '비고' 열의 값(1등 입상자, 2등 입상자 등)은 사용하지 말 것
@@ -886,7 +906,7 @@ ${plannedJudgeNames}
 
 [출력 형식]
 {
-  "judges_attended": ["참석위원1", "참석위원2"],
+  ${!hasPlannedJudges ? '"judges_planned": [{"type": "외부", "name": "성명", "org": "소속"}, {"type": "예비", "name": "성명", "org": "소속"}],\n  ' : ''}"judges_attended": ["참석위원1", "참석위원2"],
   "chairperson": "위원장 성명",
   "announceDate": "YYYY-MM-DD",
   "awards": [
@@ -1079,8 +1099,16 @@ files 배열에는 첨부한 PDF 파일마다 각 페이지의 큰 헤드라인�
         ? attendedRaw.filter(n => plannedNames.includes(n))
         : attendedRaw;
 
+      // judges_planned가 없었는데 Gemini가 공고 파일에서 추출한 경우 반영
+      const extractedJudgesPlanned = !hasPlannedJudges && data.judges_planned?.length > 0
+        ? data.judges_planned : seumterData.judges_planned || [];
+      if (!hasPlannedJudges && extractedJudgesPlanned.length > 0) {
+        logProgress(`✓ 공고 파일에서 심사위원 ${extractedJudgesPlanned.length}명 추출`, 'done');
+      }
+
       data = cleanNamesInData({
         ...seumterData,
+        judges_planned: extractedJudgesPlanned,
         judges_attended: attendedFiltered,
         chairperson: data.chairperson || '',
         announceDate: seumterData.announceDate || data.announceDate || '',
