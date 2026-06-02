@@ -1,10 +1,12 @@
 // 페이지 내 다운로드 요소 참조 (extractData 호출 시 갱신)
-let _attachedFileEls = [];
-let _judgeResultEls = [];
+// var 사용: 스크립트 재주입 시 let/const 중복 선언 에러 방지
+if (!window.__seumterState) window.__seumterState = { attachedFileEls: [], judgeResultEls: [] };
+var _attachedFileEls = window.__seumterState.attachedFileEls;
+var _judgeResultEls  = window.__seumterState.judgeResultEls;
 
 function extractData() {
-  _attachedFileEls = [];
-  _judgeResultEls = [];
+  _attachedFileEls = window.__seumterState.attachedFileEls = [];
+  _judgeResultEls  = window.__seumterState.judgeResultEls  = [];
   const result = {};
 
   // ── 공모 개요 th-td 추출 ──
@@ -319,44 +321,8 @@ window.__seumterMsgHandler = (request, sender, sendResponse) => {
     if (el) { el.click(); sendResponse({ success: true }); }
     else sendResponse({ success: false, error: '요소 없음' });
   } else if (request.action === 'getResultNoticeUrl') {
-    // 클릭 없이 React fiber / Next.js 데이터에서 URL 추출
-    const btn = document.querySelector('[data-seumter-result-notice]');
-    if (!btn) { sendResponse({ url: '' }); return true; }
-
-    let url = '';
-
-    // 방법 1: window.__NEXT_DATA__ (Next.js 페이지 props)
-    try {
-      const nd = window.__NEXT_DATA__;
-      if (nd) {
-        const str = JSON.stringify(nd);
-        const m = str.match(/"[^"]*(?:url|Url|href|path|link)[^"]*"\s*:\s*"(\/[^"]{5,})"/i);
-        if (m) url = location.origin + m[1];
-      }
-    } catch(e) {}
-
-    // 방법 2: React fiber에서 onClick 함수 소스 파싱
-    if (!url) {
-      try {
-        const fk = Object.keys(btn).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps'));
-        if (fk) {
-          let fiber = btn[fk];
-          for (let i = 0; i < 10 && fiber; i++) {
-            const props = fiber.memoizedProps || fiber.pendingProps || (fk.startsWith('__reactProps') ? btn[fk] : null);
-            if (!props) { fiber = fiber.return; continue; }
-            const fn = props.onClick || props.onClickCapture;
-            if (typeof fn === 'function') {
-              const src = fn.toString();
-              const m = src.match(/['"`](\/(?:moct|awp|awm|main)[^'"`\s]{3,})['"`]/);
-              if (m) { url = location.origin + m[1]; break; }
-            }
-            fiber = fiber.return;
-          }
-        }
-      } catch(e) {}
-    }
-
-    sendResponse({ url });
+    // Next.js App Router 환경: __NEXT_DATA__ 없음, 클릭 없이 즉시 불가 응답
+    sendResponse({ url: '' });
   }
   return true;
 };
