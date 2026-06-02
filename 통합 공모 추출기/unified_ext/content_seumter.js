@@ -320,9 +320,10 @@ window.__seumterMsgHandler = (request, sender, sendResponse) => {
     const el = _judgeResultEls[request.index];
     if (el) { el.click(); sendResponse({ success: true }); }
     else sendResponse({ success: false, error: '요소 없음' });
-  } else if (request.action === 'getResultNoticeUrl') {
-    // Next.js App Router 환경: __NEXT_DATA__ 없음, 클릭 없이 즉시 불가 응답
-    sendResponse({ url: '' });
+  } else if (request.action === 'clickResultNotice') {
+    const btn = document.querySelector('[data-seumter-result-notice]');
+    if (btn) btn.click();
+    sendResponse({ success: !!btn });
   }
   return true;
 };

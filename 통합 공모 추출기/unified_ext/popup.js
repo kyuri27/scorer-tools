@@ -295,8 +295,10 @@ async function extractSeumter() {
     await chrome.storage.session.set({ extractedData, cachedUrl: tab.url });
     renderResultSeumter(extractedData);
     statusEl.innerHTML = '<div class="status success">✅ 추출 완료!</div>';
-    // 심사결과 공고 바로가기 URL 별도 수집
+    // 심사결과 공고 바로가기 URL 수집
+    // webNavigation.onHistoryStateUpdated로 Next.js SPA 이동 URL 캡처 → 즉시 back
     if (extractedData['_hasResultNoticeBtn'] && !extractedData['심사결과공고_링크']) {
+      const originalUrl = tab.url;
       const setResultField = (url) => {
         const field = document.getElementById('resultNoticeUrlField');
         if (!field) return;
@@ -304,15 +306,34 @@ async function extractSeumter() {
           ? `<a href="${url}" target="_blank" style="font-size:11px; color:#2563eb; word-break:break-all;">${url}</a>`
           : `<div class="val" style="font-size:10px; color:#9ca3af;">자동 추출 불가 — 페이지에서 직접 확인하세요</div>`;
       };
-      // 2초 타임아웃 — 응답 없으면 자동 추출 불가로 표시
-      const timer = setTimeout(() => setResultField(''), 2000);
-      chrome.tabs.sendMessage(tab.id, { action: 'getResultNoticeUrl' }, resp => {
+
+      let done = false;
+      const finish = (url) => {
+        if (done) return;
+        done = true;
         clearTimeout(timer);
-        const url = resp?.url || '';
+        chrome.webNavigation.onHistoryStateUpdated.removeListener(onNav);
         extractedData['심사결과공고_링크'] = url;
         chrome.storage.session.set({ extractedData });
         setResultField(url);
-      });
+      };
+
+      const onNav = (details) => {
+        if (details.tabId !== tab.id) return;
+        if (details.url === originalUrl) return;
+        const url = details.url;
+        finish(url);
+        // 즉시 원래 페이지로 복귀
+        chrome.scripting.executeScript({
+          target: { tabId: tab.id }, world: 'MAIN',
+          func: () => history.back(),
+        });
+      };
+      chrome.webNavigation.onHistoryStateUpdated.addListener(onNav);
+
+      const timer = setTimeout(() => finish(''), 3000);
+      // 버튼 클릭 (URL 캡처는 위 리스너에서)
+      chrome.tabs.sendMessage(tab.id, { action: 'clickResultNotice' });
     }
   } catch (e) {
     statusEl.innerHTML = `<div class="status error">❌ 오류: ${e.message}</div>`;
