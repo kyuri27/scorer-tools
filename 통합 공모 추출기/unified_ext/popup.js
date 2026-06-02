@@ -296,7 +296,7 @@ async function extractSeumter() {
     renderResultSeumter(extractedData);
     statusEl.innerHTML = '<div class="status success">✅ 추출 완료!</div>';
     // 심사결과 공고 바로가기 URL 수집
-    // webNavigation.onHistoryStateUpdated로 Next.js SPA 이동 URL 캡처 → 즉시 back
+    // tabs.onUpdated로 풀페이지 이동 URL 캡처 → 즉시 원래 페이지로 redirect
     if (extractedData['_hasResultNoticeBtn'] && !extractedData['심사결과공고_링크']) {
       const originalUrl = tab.url;
       const setResultField = (url) => {
@@ -312,27 +312,34 @@ async function extractSeumter() {
         if (done) return;
         done = true;
         clearTimeout(timer);
-        chrome.webNavigation.onHistoryStateUpdated.removeListener(onNav);
+        chrome.tabs.onUpdated.removeListener(onTabUpdated);
+        chrome.webNavigation.onHistoryStateUpdated.removeListener(onSpaNav);
         extractedData['심사결과공고_링크'] = url;
         chrome.storage.session.set({ extractedData });
+        if (url) {
+          // 즉시 원래 페이지로 돌아오기
+          chrome.tabs.update(tab.id, { url: originalUrl });
+        }
         setResultField(url);
       };
 
-      const onNav = (details) => {
-        if (details.tabId !== tab.id) return;
-        if (details.url === originalUrl) return;
-        const url = details.url;
-        finish(url);
-        // 즉시 원래 페이지로 복귀
-        chrome.scripting.executeScript({
-          target: { tabId: tab.id }, world: 'MAIN',
-          func: () => history.back(),
-        });
+      // 풀 페이지 로드 캡처 (changeInfo.url이 navigation 시작 시 제공됨)
+      const onTabUpdated = (tabId, changeInfo) => {
+        if (tabId !== tab.id || !changeInfo.url) return;
+        if (changeInfo.url === originalUrl) return;
+        finish(changeInfo.url);
       };
-      chrome.webNavigation.onHistoryStateUpdated.addListener(onNav);
+      // SPA(pushState) 캡처
+      const onSpaNav = (details) => {
+        if (details.tabId !== tab.id || details.url === originalUrl) return;
+        finish(details.url);
+      };
 
-      const timer = setTimeout(() => finish(''), 3000);
-      // 버튼 클릭 (URL 캡처는 위 리스너에서)
+      chrome.tabs.onUpdated.addListener(onTabUpdated);
+      chrome.webNavigation.onHistoryStateUpdated.addListener(onSpaNav);
+      const timer = setTimeout(() => finish(''), 4000);
+
+      // 버튼 클릭
       chrome.tabs.sendMessage(tab.id, { action: 'clickResultNotice' });
     }
   } catch (e) {
