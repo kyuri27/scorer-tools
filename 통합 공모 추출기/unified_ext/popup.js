@@ -294,25 +294,7 @@ async function extractSeumter() {
     cachedUrl = tab.url;
     await chrome.storage.session.set({ extractedData, cachedUrl: tab.url });
     renderResultSeumter(extractedData);
-    statusEl.innerHTML = '<div class="status success">✅ 추출 완료!</div>';
-    // 심사결과 공고 바로가기 URL 수집 (content script에서 이동 차단 + 새 탭 열기)
-    if (extractedData['_hasResultNoticeBtn'] && !extractedData['심사결과공고_링크']) {
-      const setResultField = (url) => {
-        const field = document.getElementById('resultNoticeUrlField');
-        if (!field) return;
-        field.innerHTML = url
-          ? `<a href="${url}" target="_blank" style="font-size:11px; color:#2563eb; word-break:break-all;">${url}</a>`
-          : `<div class="val" style="font-size:10px; color:#9ca3af;">자동 추출 불가 — 페이지에서 직접 확인하세요</div>`;
-      };
-      chrome.tabs.sendMessage(tab.id, { action: 'clickResultNotice' }, resp => {
-        const url = resp?.url || '';
-        extractedData['심사결과공고_링크'] = url;
-        chrome.storage.session.set({ extractedData });
-        setResultField(url);
-        // URL을 캡처한 경우 새 탭에서 열기
-        if (url) chrome.tabs.create({ url, active: false });
-      });
-    }
+    statusEl.innerHTML = '<div class="status success">✅ 추출 완료!';
   } catch (e) {
     statusEl.innerHTML = `<div class="status error">❌ 오류: ${e.message}</div>`;
     btn.disabled = false;
@@ -409,7 +391,7 @@ function renderResultSeumter(data) {
       </div>`;
     } else {
       html += `<div class="field" id="resultNoticeUrlField">
-        <div class="val" style="font-size:10px; color:#9ca3af;">확인 중...</div>
+        <button id="openResultNoticeBtn" style="width:auto; padding:4px 10px; font-size:11px; background:#2563eb; color:#fff; border:none; border-radius:4px; cursor:pointer;">🔗 링크 열기</button>
       </div>`;
     }
   }
@@ -448,6 +430,27 @@ function renderResultSeumter(data) {
   document.getElementById('copyToolBtn').addEventListener('click', copyForToolSeumter);
   if (judges.length > 0) {
     document.getElementById('downloadTxtBtn').addEventListener('click', downloadJudgesTxt);
+  }
+  // 심사결과 공고 링크 열기 버튼
+  const openNoticeBtn = document.getElementById('openResultNoticeBtn');
+  if (openNoticeBtn) {
+    openNoticeBtn.addEventListener('click', async () => {
+      openNoticeBtn.disabled = true;
+      openNoticeBtn.textContent = '수집 중...';
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      chrome.tabs.sendMessage(tab.id, { action: 'clickResultNotice' }, resp => {
+        const url = resp?.url || '';
+        extractedData['심사결과공고_링크'] = url;
+        chrome.storage.session.set({ extractedData });
+        const field = document.getElementById('resultNoticeUrlField');
+        if (field) {
+          field.innerHTML = url
+            ? `<a href="${url}" target="_blank" style="font-size:11px; color:#2563eb; word-break:break-all;">${url}</a>`
+            : `<div class="val" style="font-size:10px; color:#9ca3af;">자동 추출 불가 — 페이지에서 직접 확인하세요</div>`;
+        }
+        if (url) chrome.tabs.create({ url, active: true });
+      });
+    });
   }
 }
 
