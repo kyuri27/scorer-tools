@@ -382,6 +382,19 @@ function renderResultSeumter(data) {
     });
   }
 
+  const resultNoticeUrl = data['심사결과공고_링크'] || '';
+  const hasResultNoticeBtn = data['_hasResultNoticeBtn'] || false;
+  if (resultNoticeUrl || hasResultNoticeBtn) {
+    html += '<h3 style="margin-top:10px;">🔗 심사결과 공고</h3>';
+    if (resultNoticeUrl) {
+      html += `<div class="field">
+        <a href="${resultNoticeUrl}" target="_blank" style="font-size:11px; color:#2563eb; word-break:break-all;">${resultNoticeUrl}</a>
+      </div>`;
+    } else {
+      html += `<div class="field"><div class="val" style="font-size:10px; color:#9ca3af;">링크 자동 추출 불가 — 페이지에서 직접 확인하세요</div></div>`;
+    }
+  }
+
   html += '</div>';
 
   if (awards.length > 0) {
@@ -479,7 +492,8 @@ async function copyForToolSeumter() {
     announceDate: d['당선작발표일'] || d['일정_정보']?.['당선작발표일'] || '',
     chairperson: '',
     judges_planned: judges, judges_attended: [],
-    awards, files: []
+    awards, files: [],
+    resultNoticeUrl: d['심사결과공고_링크'] || '',
   };
 
   copyToClipboard(JSON.stringify(toolData))

@@ -285,6 +285,45 @@ function extractData() {
   });
   result['심사결과_파일_목록'] = judgeResultFiles;
 
+  // ── 심사결과 공고 바로가기 링크 추출 ──
+  let resultNoticeUrl = '';
+  const goBtn = Array.from(document.querySelectorAll('button, a')).find(el => {
+    if (el.hasAttribute('data-seumter-judge')) return false;
+    const text = el.textContent.replace(/\s+/g, '');
+    return text.includes('바로가기') && (text.includes('심사결과') || text.includes('공고'));
+  });
+  if (goBtn) {
+    // 방법 1: <a> href 직접 사용
+    if (goBtn.tagName === 'A' && goBtn.href && !goBtn.href.startsWith('javascript:')) {
+      resultNoticeUrl = goBtn.href;
+    }
+    // 방법 2: 부모/자식 <a> 탐색
+    if (!resultNoticeUrl) {
+      const a = goBtn.closest('a') || goBtn.querySelector('a');
+      if (a?.href && !a.href.startsWith('javascript:')) resultNoticeUrl = a.href;
+    }
+    // 방법 3: onclick 속성에서 URL 추출
+    if (!resultNoticeUrl) {
+      const onc = goBtn.getAttribute('onclick') || '';
+      const m = onc.match(/['"]((https?:)?\/[^'"]{5,})['"]/);
+      if (m) resultNoticeUrl = new URL(m[1], location.origin).href;
+    }
+    // 방법 4: React props에서 URL 추출 시도 (Next.js)
+    if (!resultNoticeUrl) {
+      try {
+        const rk = Object.keys(goBtn).find(k => k.startsWith('__reactProps') || k.startsWith('__reactFiber'));
+        if (rk) {
+          const str = JSON.stringify(goBtn[rk],
+            (key, val) => typeof val === 'function' ? val.toString() : val);
+          const m = str.match(/['"]((\/awp|\/awm|\/moct)[^'"]{5,})['"]/);
+          if (m) resultNoticeUrl = location.origin + m[1];
+        }
+      } catch(e) {}
+    }
+  }
+  result['심사결과공고_링크'] = resultNoticeUrl;
+  result['_hasResultNoticeBtn'] = !!goBtn;
+
   result['_url'] = window.location.href;
   result['_extractedAt'] = new Date().toLocaleString('ko-KR');
   return result;
