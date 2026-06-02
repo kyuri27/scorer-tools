@@ -438,24 +438,35 @@ function renderResultSeumter(data) {
     btn.disabled = true;
     btn.textContent = '수집 중...';
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    // content script 재주입 후 메시지 전송
-    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content_seumter.js'] });
-    await new Promise(r => setTimeout(r, 200));
-    chrome.tabs.sendMessage(tab.id, { action: 'clickResultNotice' }, resp => {
-      if (chrome.runtime.lastError) { /* 무시 */ }
-      const url = resp?.url || '';
+    const setResultField = (url) => {
+      const field = document.getElementById('resultNoticeUrlField');
+      if (!field) return;
+      field.innerHTML = url
+        ? `<a href="${url}" target="_blank" style="font-size:11px; color:#2563eb; word-break:break-all;">${url}</a>`
+        : `<div class="val" style="font-size:10px; color:#9ca3af;">자동 추출 불가 — 페이지에서 직접 확인하세요</div>`;
+    };
+    let done = false;
+    const finish = (url) => {
+      if (done) return; done = true;
+      clearTimeout(timer);
+      chrome.tabs.onCreated.removeListener(onTabCreated);
       extractedData['심사결과공고_링크'] = url;
-      // 저장 완료 콜백 안에서 UI 업데이트 (저장 전 팝업 닫힘 방지)
-      chrome.storage.session.set({ extractedData }, () => {
-        const field = document.getElementById('resultNoticeUrlField');
-        if (!field) return;
-        field.innerHTML = url
-          ? `<a href="${url}" target="_blank" style="font-size:11px; color:#2563eb; word-break:break-all;">${url}</a>`
-          : `<div class="val" style="font-size:10px; color:#9ca3af;">자동 추출 불가 — 페이지에서 직접 확인하세요</div>`;
-        // URL 성공 시 백그라운드 탭으로 열기 (현재 탭·팝업 유지)
-        if (url) chrome.tabs.create({ url, active: false });
-      });
-    });
+      chrome.storage.session.set({ extractedData });
+      setResultField(url);
+    };
+    // 새 탭 열리는 순간 URL 캡처 + 원래 탭 즉시 복귀 (팝업 유지)
+    const onTabCreated = (newTab) => {
+      const url = newTab.pendingUrl || newTab.url || '';
+      if (!url || url === 'about:blank' || url.startsWith('chrome')) return;
+      finish(url);
+      chrome.tabs.update(tab.id, { active: true }); // 팝업 유지
+    };
+    chrome.tabs.onCreated.addListener(onTabCreated);
+    const timer = setTimeout(() => finish(''), 4000);
+    // content script 재주입 후 버튼 클릭
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content_seumter.js'] });
+    await new Promise(r => setTimeout(r, 150));
+    chrome.tabs.sendMessage(tab.id, { action: 'clickResultNotice' });
   }, { once: false });
 }
 

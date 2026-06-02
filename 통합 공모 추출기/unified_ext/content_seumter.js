@@ -321,80 +321,10 @@ window.__seumterMsgHandler = (request, sender, sendResponse) => {
     if (el) { el.click(); sendResponse({ success: true }); }
     else sendResponse({ success: false, error: '요소 없음' });
   } else if (request.action === 'clickResultNotice') {
+    // 단순 클릭 — 열리는 탭 URL은 popup의 tabs.onCreated로 캡처
     const btn = document.querySelector('[data-seumter-result-notice]');
-    if (!btn) { sendResponse({ url: '' }); return true; }
-
-    let url = '';
-    const urlRe = /https?:\/\/[^\s'"`,)]{10,}/;
-
-    // 방법 1: 부모/자식 <a href>
-    const anchor = btn.closest('a[href]') || btn.querySelector('a[href]');
-    if (anchor?.href && !anchor.href.startsWith('javascript:')) url = anchor.href;
-
-    // 방법 2: __reactProps (DOM 노드 직속 props)
-    if (!url) {
-      let el = btn;
-      for (let i = 0; i < 6 && el && !url; i++) {
-        const pk = Object.keys(el).find(k => k.startsWith('__reactProps'));
-        if (pk) {
-          const p = el[pk];
-          if (p?.href && typeof p.href === 'string' && urlRe.test(p.href)) { url = p.href; break; }
-          const fn = p?.onClick || p?.onClickCapture;
-          if (typeof fn === 'function') {
-            const src = fn.toString();
-            const m = src.match(/['"`](https?:\/\/[^'"`\s]{10,})['"`]/) ||
-                      src.match(/['"`](\/[a-zA-Z][^'"`\s]{10,})['"`]/);
-            if (m) url = /^https?:\/\//.test(m[1]) ? m[1] : location.origin + m[1];
-          }
-        }
-        el = el.parentElement;
-      }
-    }
-
-    // 방법 3: __reactFiber memoizedProps / memoizedState 순회
-    if (!url) {
-      try {
-        const fk = Object.keys(btn).find(k => k.startsWith('__reactFiber'));
-        if (fk) {
-          let fiber = btn[fk];
-          for (let i = 0; i < 15 && fiber && !url; i++) {
-            const props = fiber.memoizedProps || fiber.pendingProps;
-            if (props) {
-              if (props.href && urlRe.test(props.href)) { url = props.href; break; }
-              const fn = props.onClick || props.onClickCapture;
-              if (typeof fn === 'function') {
-                const src = fn.toString();
-                const m = src.match(/['"`](https?:\/\/[^'"`\s]{10,})['"`]/);
-                if (m) { url = m[1]; break; }
-              }
-            }
-            // memoizedState (hook state) 순회
-            let st = fiber.memoizedState;
-            for (let j = 0; j < 10 && st && !url; j++) {
-              const v = st.memoizedState;
-              if (typeof v === 'string' && urlRe.test(v)) url = v;
-              st = st.next;
-            }
-            fiber = fiber.return;
-          }
-        }
-      } catch(e) {}
-    }
-
-    // 방법 4: 페이지 내 전역 상태 (React Query, Redux 등)
-    if (!url) {
-      try {
-        const globals = [window.__REACT_QUERY_STATE__, window.__APOLLO_STATE__,
-                         window.__REDUX_STATE__, window.__INITIAL_STATE__];
-        for (const g of globals) {
-          if (!g) continue;
-          const m = JSON.stringify(g).match(/"(?:url|href|link|noticeUrl|resultUrl)"\s*:\s*"(https?:\/\/[^"]{10,})"/i);
-          if (m) { url = m[1]; break; }
-        }
-      } catch(e) {}
-    }
-
-    sendResponse({ url });
+    if (btn) btn.click();
+    sendResponse({ success: !!btn });
   }
   return true;
 };
