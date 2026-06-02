@@ -255,12 +255,12 @@ function checkPw() {
     </div>
     <div style="margin-top:12px; padding-top:12px; border-top:1px solid #e0f2fe;">
       <div style="font-size:12px; font-weight:600; color:#374151; margin-bottom:6px;">👥 심사위원 직접 입력 <span style="font-weight:400; color:#6b7280;">— JSON보다 우선 적용</span></div>
-      <textarea id="manualJudgesInput" oninput="previewManualJudges()" placeholder="형식 1 (콜론):&#10;심재익: 심건축사사무소&#10;이정욱: 더시선 건축사사무소&#10;예비1 선형종: ㈜한길종합건축사사무소&#10;&#10;형식 2 (쉼표):&#10;외부, 심재익, 심건축사사무소&#10;예비, 선형종, ㈜한길종합건축사사무소&#10;&#10;형식 3 (탭구분):&#10;심사위원	심재익	심건축사사무소&#10;예비위원	선형종	㈜한길종합건축사사무소" style="min-height:90px; font-size:12px; width:100%; box-sizing:border-box; font-family:monospace;"></textarea>
+      <textarea id="manualJudgesInput" oninput="previewManualJudgesDebounced()" placeholder="형식 1 (콜론):&#10;심재익: 심건축사사무소&#10;이정욱: 더시선 건축사사무소&#10;예비1 선형종: ㈜한길종합건축사사무소&#10;&#10;형식 2 (쉼표):&#10;외부, 심재익, 심건축사사무소&#10;예비, 선형종, ㈜한길종합건축사사무소&#10;&#10;형식 3 (탭구분):&#10;심사위원	심재익	심건축사사무소&#10;예비위원	선형종	㈜한길종합건축사사무소" style="min-height:90px; font-size:12px; width:100%; box-sizing:border-box; font-family:monospace;"></textarea>
       <div id="manualJudgesPreview"></div>
     </div>
     <div style="margin-top:12px; padding-top:12px; border-top:1px solid #e0f2fe;">
       <div style="font-size:12px; font-weight:600; color:#374151; margin-bottom:6px;">🏆 수상작 직접 입력 <span style="font-weight:400; color:#6b7280;">— JSON보다 우선 적용</span></div>
-      <textarea id="manualAwardsInput" oninput="previewManualAwards()" placeholder="구분, 참가번호, 설계사무소, 대표설계자&#10;당선작, 25, 이즈건축, 강중열&#10;입상작, 113, ㈜해마종합건축사사무소, 전권식&#10;&#10;참가번호 없을 경우:&#10;당선작, 이즈건축, 강중열&#10;&#10;공동 수상 (두 팀이 같은 상 → 당선작1·당선작2):&#10;당선작, 25, A건축사무소, 홍길동&#10;당선작, 42, B건축사무소, 김철수&#10;&#10;합동 출품 (한 팀, 여러 사무소):&#10;당선작, 25, A건축사무소+B건축사무소, 홍길동" style="min-height:80px; font-size:12px; width:100%; box-sizing:border-box; font-family:monospace;"></textarea>
+      <textarea id="manualAwardsInput" oninput="previewManualAwardsDebounced()" placeholder="구분, 참가번호, 설계사무소, 대표설계자&#10;당선작, 25, 이즈건축, 강중열&#10;입상작, 113, ㈜해마종합건축사사무소, 전권식&#10;&#10;참가번호 없을 경우:&#10;당선작, 이즈건축, 강중열&#10;&#10;공동 수상 (두 팀이 같은 상 → 당선작1·당선작2):&#10;당선작, 25, A건축사무소, 홍길동&#10;당선작, 42, B건축사무소, 김철수&#10;&#10;합동 출품 (한 팀, 여러 사무소):&#10;당선작, 25, A건축사무소+B건축사무소, 홍길동" style="min-height:80px; font-size:12px; width:100%; box-sizing:border-box; font-family:monospace;"></textarea>
       <div id="manualAwardsPreview"></div>
     </div>
     <div style="margin-top:12px; padding-top:12px; border-top:1px solid #e0f2fe;">
@@ -284,7 +284,7 @@ function checkPw() {
       <div style="font-size:12px; font-weight:600; color:#374151; margin-bottom:8px;">🔗 스코어러 - admin 자동 입력 연동 <span style="font-weight:400; color:#6b7280;">— scorer.co.kr 공모전 ID</span></div>
       <label style="font-size:12px; color:#374151; display:flex; flex-direction:column; gap:4px; max-width:200px;">
         공모전 ID
-        <input type="text" id="competitionIdInput" placeholder="예: 5834" style="font-size:14px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-weight:600; letter-spacing:1px;">
+        <input type="text" id="competitionIdInput" placeholder="예: 5834" autocomplete="off" style="font-size:14px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; font-weight:600; letter-spacing:1px;">
       </label>
     </div>
   </div>
@@ -431,6 +431,17 @@ function clearSeumterJSON() {
   document.getElementById('seumterJsonInput').value = '';
   document.getElementById('seumterStatus').innerHTML = '';
 }
+
+// ───── 디바운스 유틸 ─────
+function debounce(fn, delay) {
+  let timer;
+  return function(...args) {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn.apply(this, args), delay);
+  };
+}
+const previewManualAwardsDebounced = debounce(previewManualAwards, 200);
+const previewManualJudgesDebounced = debounce(previewManualJudges, 200);
 
 // ───── 파일 업로드 ─────
 
@@ -1479,6 +1490,7 @@ function renderSummary(s) {
   if (s.agency) html += `<li><b>공고기관</b>: ${s.agency}</li>`;
   if (s.noticeDate) html += `<li><b>공고일시</b>: ${s.noticeDate}</li>`;
   if (s.announceDate) html += `<li><b>당선작 발표일</b>: ${s.announceDate}</li>`;
+  if (s.resultNoticeUrl) html += `<li><b>심사결과 공고</b>: <a href="${s.resultNoticeUrl}" target="_blank" style="color:#0891b2; word-break:break-all;">${s.resultNoticeUrl}</a></li>`;
   html += `</ul>`;
 
   const seumterJudges = getManualJudges() || s.judges_planned || [];
