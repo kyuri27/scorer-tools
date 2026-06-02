@@ -785,14 +785,35 @@ async function captureBulkDownload(tabId) {
         }
       } catch(e) {}
 
-      // 파일 체크박스 전체 선택 (선택 없이 다운로드 클릭 시 "파일을 선택하세요" 오류 방지)
-      const fileSection =
-        btn.closest('[id*="grdFile"],[id*="file"],[id*="File"],[id*="attach"],[id*="Attach"]') ||
-        btn.parentElement?.closest('[id*="grdFile"],[id*="file"],[id*="File"]') ||
-        btn.parentElement;
-      const cbs = (fileSection || document).querySelectorAll('input[type="checkbox"]');
-      cbs.forEach(cb => { cb.checked = true; cb.dispatchEvent(new Event('change', { bubbles: true })); });
-      if (cbs.length > 0) await new Promise(r => setTimeout(r, 150));
+      // alert 억제 (파일 미선택 시 "다운로드 할 파일이 없습니다" 팝업 방지)
+      const origAlert = window.alert;
+      window.alert = () => {};
+
+      // 파일 체크박스 전체 선택 (다중 전략)
+      // 전략 1: id에 grdFile/file/File/attach 포함하는 컨테이너의 체크박스
+      let cbs = Array.from(document.querySelectorAll(
+        '[id*="grdFile"] input[type="checkbox"], [id*="file"] input[type="checkbox"], ' +
+        '[id*="File"] input[type="checkbox"], [id*="attach"] input[type="checkbox"], ' +
+        '[id*="Attach"] input[type="checkbox"]'
+      ));
+      // 전략 2: 버튼 부모를 올라가며 체크박스 탐색
+      if (cbs.length === 0) {
+        let el = btn.parentElement;
+        for (let i = 0; i < 6 && el; i++, el = el.parentElement) {
+          const found = Array.from(el.querySelectorAll('input[type="checkbox"]'));
+          if (found.length > 0) { cbs = found; break; }
+        }
+      }
+      // 전략 3: 페이지 전체 체크박스 (최후 수단)
+      if (cbs.length === 0) {
+        cbs = Array.from(document.querySelectorAll('input[type="checkbox"]'));
+      }
+      cbs.forEach(cb => {
+        cb.checked = true;
+        cb.dispatchEvent(new Event('change', { bubbles: true }));
+        cb.dispatchEvent(new Event('click',  { bubbles: true }));
+      });
+      if (cbs.length > 0) await new Promise(r => setTimeout(r, 200));
 
       btn.click();
       for (let t = 0; t < 50; t++) {
@@ -802,6 +823,7 @@ async function captureBulkDownload(tabId) {
       if (blobCaptured || xhrDataPromise || fetchDataPromise) await new Promise(r => setTimeout(r, 300));
 
       // 복원
+      window.alert = origAlert;
       document.removeEventListener('submit', submitEventHandler, true);
       HTMLFormElement.prototype.submit    = origSubmit;
       XMLHttpRequest.prototype.open       = origOpen;
