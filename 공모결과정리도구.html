@@ -412,7 +412,7 @@ function applySeumterJSON() {
       return;
     }
     const data = JSON.parse(raw);
-    seumterData = data;
+    seumterData = cleanNamesInData(data);
     const name = cleanCompetitionName(data.competitionName || '');
     const build = data.buildType ? `(${data.buildType})` : '';
     const judgeCount = (data.judges_planned || []).length;
@@ -430,6 +430,26 @@ function clearSeumterJSON() {
   seumterData = null;
   document.getElementById('seumterJsonInput').value = '';
   document.getElementById('seumterStatus').innerHTML = '';
+}
+
+// ───── 이름 정리 (띄어쓰기 제거) ─────
+function cleanPersonName(name) {
+  if (!name) return name;
+  return name.replace(/\s+/g, '');
+}
+function cleanNamesInData(data) {
+  if (!data) return data;
+  if (data.judges_planned) {
+    data.judges_planned.forEach(j => { j.name = cleanPersonName(j.name); });
+  }
+  if (data.judges_attended) {
+    data.judges_attended = data.judges_attended.map(n => cleanPersonName(n));
+  }
+  if (data.chairperson) data.chairperson = cleanPersonName(data.chairperson);
+  if (data.awards) {
+    data.awards.forEach(a => { a.designer = cleanPersonName(a.designer); });
+  }
+  return data;
 }
 
 // ───── 디바운스 유틸 ─────
@@ -1059,14 +1079,14 @@ files 배열에는 첨부한 PDF 파일마다 각 페이지의 큰 헤드라인�
         ? attendedRaw.filter(n => plannedNames.includes(n))
         : attendedRaw;
 
-      data = {
+      data = cleanNamesInData({
         ...seumterData,
         judges_attended: attendedFiltered,
         chairperson: data.chairperson || '',
         announceDate: seumterData.announceDate || data.announceDate || '',
         awards: mergedAwards,
         files: data.files || [],
-      };
+      });
       setProgress(95, '✓ 공모 정보 병합 완료');
       logProgress('✓ 세움터 공모 정보 병합 완료', 'done');
 
@@ -1077,6 +1097,7 @@ files 배열에는 첨부한 PDF 파일마다 각 페이지의 큰 헤드라인�
     }
 
     data = await extractPdfAwardImages(data, resultFiles);
+    cleanNamesInData(data);
     applyManualDates(data);
     renderSummary(data);
     await renderDownloads(data);
