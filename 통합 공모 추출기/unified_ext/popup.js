@@ -295,6 +295,17 @@ async function extractSeumter() {
     await chrome.storage.session.set({ extractedData, cachedUrl: tab.url });
     renderResultSeumter(extractedData);
     statusEl.innerHTML = '<div class="status success">✅ 추출 완료!</div>';
+    // 심사결과 공고 바로가기 URL 별도 수집 (클릭 인터셉트 방식)
+    if (extractedData['_hasResultNoticeBtn'] && !extractedData['심사결과공고_링크']) {
+      chrome.tabs.sendMessage(tab.id, { action: 'getResultNoticeUrl' }, resp => {
+        const url = resp?.url || '';
+        if (!url) return;
+        extractedData['심사결과공고_링크'] = url;
+        chrome.storage.session.set({ extractedData });
+        const field = document.getElementById('resultNoticeUrlField');
+        if (field) field.innerHTML = `<a href="${url}" target="_blank" style="font-size:11px; color:#2563eb; word-break:break-all;">${url}</a>`;
+      });
+    }
   } catch (e) {
     statusEl.innerHTML = `<div class="status error">❌ 오류: ${e.message}</div>`;
     btn.disabled = false;
@@ -382,16 +393,17 @@ function renderResultSeumter(data) {
     });
   }
 
-  const resultNoticeUrl = data['심사결과공고_링크'] || '';
-  const hasResultNoticeBtn = data['_hasResultNoticeBtn'] || false;
-  if (resultNoticeUrl || hasResultNoticeBtn) {
+  if (data['_hasResultNoticeBtn']) {
     html += '<h3 style="margin-top:10px;">🔗 심사결과 공고</h3>';
-    if (resultNoticeUrl) {
-      html += `<div class="field">
-        <a href="${resultNoticeUrl}" target="_blank" style="font-size:11px; color:#2563eb; word-break:break-all;">${resultNoticeUrl}</a>
+    const existingUrl = data['심사결과공고_링크'] || '';
+    if (existingUrl) {
+      html += `<div class="field" id="resultNoticeUrlField">
+        <a href="${existingUrl}" target="_blank" style="font-size:11px; color:#2563eb; word-break:break-all;">${existingUrl}</a>
       </div>`;
     } else {
-      html += `<div class="field"><div class="val" style="font-size:10px; color:#9ca3af;">링크 자동 추출 불가 — 페이지에서 직접 확인하세요</div></div>`;
+      html += `<div class="field" id="resultNoticeUrlField">
+        <div class="val" style="font-size:10px; color:#9ca3af;">URL 수집 중...</div>
+      </div>`;
     }
   }
 

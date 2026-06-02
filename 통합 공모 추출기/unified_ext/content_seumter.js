@@ -285,66 +285,14 @@ function extractData() {
   });
   result['심사결과_파일_목록'] = judgeResultFiles;
 
-  // ── 심사결과 공고 바로가기 링크 추출 ──
-  let resultNoticeUrl = '';
+  // ── 심사결과 공고 바로가기 버튼 감지 (클릭은 별도 액션에서 수행) ──
   const goBtn = Array.from(document.querySelectorAll('button, a')).find(el => {
     if (el.hasAttribute('data-seumter-judge')) return false;
     const text = el.textContent.replace(/\s+/g, '');
     return text.includes('바로가기') && (text.includes('심사결과') || text.includes('공고'));
   });
-  if (goBtn) {
-    // 방법 1: <a> href 직접 사용
-    if (goBtn.tagName === 'A' && goBtn.href && !goBtn.href.startsWith('javascript:')) {
-      resultNoticeUrl = goBtn.href;
-    }
-    // 방법 2: 부모/자식 <a> 탐색
-    if (!resultNoticeUrl) {
-      const a = goBtn.closest('a') || goBtn.querySelector('a');
-      if (a?.href && !a.href.startsWith('javascript:')) resultNoticeUrl = a.href;
-    }
-    // 방법 3: onclick 속성에서 URL 추출
-    if (!resultNoticeUrl) {
-      const onc = goBtn.getAttribute('onclick') || '';
-      const m = onc.match(/['"]((https?:)?\/[^'"]{5,})['"]/);
-      if (m) resultNoticeUrl = new URL(m[1], location.origin).href;
-    }
-    // 방법 4: React props에서 URL 추출 시도 (Next.js)
-    if (!resultNoticeUrl) {
-      try {
-        const rk = Object.keys(goBtn).find(k => k.startsWith('__reactProps') || k.startsWith('__reactFiber'));
-        if (rk) {
-          const str = JSON.stringify(goBtn[rk],
-            (key, val) => typeof val === 'function' ? val.toString() : val);
-          const m = str.match(/['"]((\/awp|\/awm|\/moct)[^'"]{5,})['"]/);
-          if (m) resultNoticeUrl = location.origin + m[1];
-        }
-      } catch(e) {}
-    }
-    // 방법 5: pushState/replaceState 가로채기 (Next.js 클라이언트 라우팅)
-    //   - 실제 페이지 이동을 막고 이동하려는 URL만 캡처
-    if (!resultNoticeUrl) {
-      try {
-        let captured = '';
-        const origPush    = history.pushState.bind(history);
-        const origReplace = history.replaceState.bind(history);
-        const origOpen    = window.open;
-        const origAlert   = window.alert;
-        window.alert = () => {};
-        // 페이지 이동 차단 + URL 캡처
-        history.pushState    = (s, t, url) => { if (!captured && url) captured = String(url); };
-        history.replaceState = (s, t, url) => { if (!captured && url) captured = String(url); };
-        window.open = (url, ...a) => { if (!captured && url && url !== 'about:blank') { captured = String(url); return null; } return origOpen.call(window, url, ...a); };
-        goBtn.click();
-        // 즉시 복원 (JS 단일 스레드 - 클릭 핸들러는 동기 실행)
-        history.pushState    = origPush;
-        history.replaceState = origReplace;
-        window.open  = origOpen;
-        window.alert = origAlert;
-        if (captured) resultNoticeUrl = new URL(captured, location.origin).href;
-      } catch(e) {}
-    }
-  }
-  result['심사결과공고_링크'] = resultNoticeUrl;
+  if (goBtn) goBtn.setAttribute('data-seumter-result-notice', '1');
+  result['심사결과공고_링크'] = '';
   result['_hasResultNoticeBtn'] = !!goBtn;
 
   result['_url'] = window.location.href;
@@ -370,6 +318,25 @@ window.__seumterMsgHandler = (request, sender, sendResponse) => {
     const el = _judgeResultEls[request.index];
     if (el) { el.click(); sendResponse({ success: true }); }
     else sendResponse({ success: false, error: '요소 없음' });
+  } else if (request.action === 'getResultNoticeUrl') {
+    // pushState 가로채기로 페이지 이동 없이 URL 캡처
+    const btn = document.querySelector('[data-seumter-result-notice]');
+    if (!btn) { sendResponse({ url: '' }); return true; }
+    let captured = '';
+    const origPush    = history.pushState.bind(history);
+    const origReplace = history.replaceState.bind(history);
+    const origOpen    = window.open;
+    const origAlert   = window.alert;
+    window.alert = () => {};
+    history.pushState    = (s, t, url) => { if (!captured && url) captured = String(url); };
+    history.replaceState = (s, t, url) => { if (!captured && url) captured = String(url); };
+    window.open = (url, ...a) => { if (!captured && url && url !== 'about:blank') { captured = String(url); return null; } return origOpen.call(window, url, ...a); };
+    btn.click();
+    history.pushState    = origPush;
+    history.replaceState = origReplace;
+    window.open  = origOpen;
+    window.alert = origAlert;
+    sendResponse({ url: captured ? new URL(captured, location.origin).href : '' });
   }
   return true;
 };
