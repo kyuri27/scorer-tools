@@ -319,55 +319,44 @@ window.__seumterMsgHandler = (request, sender, sendResponse) => {
     if (el) { el.click(); sendResponse({ success: true }); }
     else sendResponse({ success: false, error: '요소 없음' });
   } else if (request.action === 'getResultNoticeUrl') {
-    // Next.js는 pushState를 비동기로 호출하므로 클릭 후 300ms 동안 인터셉트 유지
-    (async () => {
-      const btn = document.querySelector('[data-seumter-result-notice]');
-      if (!btn) { sendResponse({ url: '' }); return; }
+    // 클릭 없이 React fiber / Next.js 데이터에서 URL 추출
+    const btn = document.querySelector('[data-seumter-result-notice]');
+    if (!btn) { sendResponse({ url: '' }); return true; }
 
-      let captured = '';
-      const origPush    = history.pushState.bind(history);
-      const origReplace = history.replaceState.bind(history);
-      const origOpen    = window.open;
-      const origAlert   = window.alert;
-      const origAClick  = HTMLAnchorElement.prototype.click;
-      let   origHrefDesc = null;
+    let url = '';
 
-      const capture = (url) => { if (!captured && url && url !== 'about:blank') captured = String(url); };
+    // 방법 1: window.__NEXT_DATA__ (Next.js 페이지 props)
+    try {
+      const nd = window.__NEXT_DATA__;
+      if (nd) {
+        const str = JSON.stringify(nd);
+        const m = str.match(/"[^"]*(?:url|Url|href|path|link)[^"]*"\s*:\s*"(\/[^"]{5,})"/i);
+        if (m) url = location.origin + m[1];
+      }
+    } catch(e) {}
 
-      window.alert         = () => {};
-      history.pushState    = (s, t, url) => capture(url);
-      history.replaceState = (s, t, url) => capture(url);
-      window.open          = (url, ...a) => { capture(url); return null; };
-      HTMLAnchorElement.prototype.click = function() {
-        if (this.href && !this.href.startsWith('javascript:') && !this.href.startsWith('blob:'))
-          { capture(this.href); return; }
-        origAClick.call(this);
-      };
+    // 방법 2: React fiber에서 onClick 함수 소스 파싱
+    if (!url) {
       try {
-        origHrefDesc = Object.getOwnPropertyDescriptor(Location.prototype, 'href');
-        if (origHrefDesc?.configurable) {
-          Object.defineProperty(Location.prototype, 'href', {
-            ...origHrefDesc,
-            set(url) { capture(url); },
-            configurable: true,
-          });
+        const fk = Object.keys(btn).find(k => k.startsWith('__reactFiber') || k.startsWith('__reactProps'));
+        if (fk) {
+          let fiber = btn[fk];
+          for (let i = 0; i < 10 && fiber; i++) {
+            const props = fiber.memoizedProps || fiber.pendingProps || (fk.startsWith('__reactProps') ? btn[fk] : null);
+            if (!props) { fiber = fiber.return; continue; }
+            const fn = props.onClick || props.onClickCapture;
+            if (typeof fn === 'function') {
+              const src = fn.toString();
+              const m = src.match(/['"`](\/(?:moct|awp|awm|main)[^'"`\s]{3,})['"`]/);
+              if (m) { url = location.origin + m[1]; break; }
+            }
+            fiber = fiber.return;
+          }
         }
       } catch(e) {}
+    }
 
-      btn.click();
-      // Next.js 비동기 라우팅 완료까지 대기
-      await new Promise(r => setTimeout(r, 350));
-
-      // 복원
-      history.pushState    = origPush;
-      history.replaceState = origReplace;
-      window.open          = origOpen;
-      window.alert         = origAlert;
-      HTMLAnchorElement.prototype.click = origAClick;
-      try { if (origHrefDesc) Object.defineProperty(Location.prototype, 'href', origHrefDesc); } catch(e) {}
-
-      sendResponse({ url: captured ? new URL(captured, location.origin).href : '' });
-    })();
+    sendResponse({ url });
   }
   return true;
 };

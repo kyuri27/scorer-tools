@@ -303,7 +303,11 @@ async function extractSeumter() {
         extractedData['심사결과공고_링크'] = url;
         chrome.storage.session.set({ extractedData });
         const field = document.getElementById('resultNoticeUrlField');
-        if (field) field.innerHTML = `<a href="${url}" target="_blank" style="font-size:11px; color:#2563eb; word-break:break-all;">${url}</a>`;
+        if (field) {
+      field.innerHTML = url
+        ? `<a href="${url}" target="_blank" style="font-size:11px; color:#2563eb; word-break:break-all;">${url}</a>`
+        : `<div class="val" style="font-size:10px; color:#9ca3af;">자동 추출 불가 — 페이지에서 직접 확인하세요</div>`;
+    }
       });
     }
   } catch (e) {
