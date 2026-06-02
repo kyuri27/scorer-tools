@@ -431,27 +431,30 @@ function renderResultSeumter(data) {
   if (judges.length > 0) {
     document.getElementById('downloadTxtBtn').addEventListener('click', downloadJudgesTxt);
   }
-  // 심사결과 공고 링크 열기 버튼
-  const openNoticeBtn = document.getElementById('openResultNoticeBtn');
-  if (openNoticeBtn) {
-    openNoticeBtn.addEventListener('click', async () => {
-      openNoticeBtn.disabled = true;
-      openNoticeBtn.textContent = '수집 중...';
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      chrome.tabs.sendMessage(tab.id, { action: 'clickResultNotice' }, resp => {
-        const url = resp?.url || '';
-        extractedData['심사결과공고_링크'] = url;
-        chrome.storage.session.set({ extractedData });
-        const field = document.getElementById('resultNoticeUrlField');
-        if (field) {
-          field.innerHTML = url
-            ? `<a href="${url}" target="_blank" style="font-size:11px; color:#2563eb; word-break:break-all;">${url}</a>`
-            : `<div class="val" style="font-size:10px; color:#9ca3af;">자동 추출 불가 — 페이지에서 직접 확인하세요</div>`;
-        }
-        if (url) chrome.tabs.create({ url, active: false }); // 백그라운드 탭으로 열어 팝업 유지
-      });
+  // 심사결과 공고 링크 열기 — 이벤트 위임으로 등록
+  document.getElementById('result').addEventListener('click', async (e) => {
+    if (e.target.id !== 'openResultNoticeBtn') return;
+    const btn = e.target;
+    btn.disabled = true;
+    btn.textContent = '수집 중...';
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    // content script 재주입 후 메시지 전송
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['content_seumter.js'] });
+    await new Promise(r => setTimeout(r, 200));
+    chrome.tabs.sendMessage(tab.id, { action: 'clickResultNotice' }, resp => {
+      if (chrome.runtime.lastError) { /* 무시 */ }
+      const url = resp?.url || '';
+      extractedData['심사결과공고_링크'] = url;
+      chrome.storage.session.set({ extractedData });
+      const field = document.getElementById('resultNoticeUrlField');
+      if (field) {
+        field.innerHTML = url
+          ? `<a href="${url}" target="_blank" style="font-size:11px; color:#2563eb; word-break:break-all;">${url}</a>`
+          : `<div class="val" style="font-size:10px; color:#9ca3af;">자동 추출 불가 — 페이지에서 직접 확인하세요</div>`;
+      }
+      if (url) chrome.tabs.create({ url, active: false });
     });
-  }
+  }, { once: false });
 }
 
 function downloadJudgesTxt() {
