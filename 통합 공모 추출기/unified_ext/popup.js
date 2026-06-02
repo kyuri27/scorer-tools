@@ -1698,10 +1698,62 @@ async function captureBulkDownloadG2B(tabId) {
         }
       } catch {}
 
+      // alert 억제 (파일 미선택 시 "다운로드 할 파일이 없습니다" 팝업 방지)
+      const origAlert = window.alert;
+      window.alert = () => {};
+
+      // ── 파일 전체 선택 (WebSquare + DOM 다중 전략) ──
+      const fileGridIds = ['grdFile','grdFileList','gridFile','grdAtchFile','grdAtchFileList',
+                           'grd_file','grdAtchFileInfo','grdNtceFileInfo','grdAtchFileLst'];
+      let wsSelected = false;
+      // 전략 A: WebSquare 그리드 API
+      for (const gid of fileGridIds) {
+        let g = null;
+        try { g = window.scwin?.[gid] ?? window.w2?.getObjectById?.(gid); } catch(e) {}
+        if (!g) continue;
+        try {
+          const checkAllMethods = ['setCheckAll','checkAll','selectAll','setAllChecked','setCheckedAll'];
+          for (const m of checkAllMethods) {
+            if (typeof g[m] === 'function') { g[m](true); wsSelected = true; break; }
+          }
+          if (!wsSelected) {
+            const rc = typeof g.getRowCount === 'function' ? (g.getRowCount() || 0) : 0;
+            if (rc > 0) {
+              for (let i = 0; i < rc; i++) {
+                for (const m of ['setCheck','setChecked','setRowChecked','checkRow']) {
+                  if (typeof g[m] === 'function') { try { g[m](i, true); } catch(e) {} break; }
+                }
+              }
+              wsSelected = true;
+            }
+          }
+        } catch(e) {}
+        if (wsSelected) { await new Promise(r => setTimeout(r, 150)); break; }
+      }
+      // 전략 B: DOM 헤더 체크박스 클릭
+      if (!wsSelected) {
+        const fileSection = btn.closest('[id*="File"],[id*="file"],[id*="grd"],[id*="attach"]') || btn.parentElement;
+        const headerCbs = Array.from((fileSection || document).querySelectorAll(
+          'thead input[type="checkbox"], th input[type="checkbox"], thead [class*="chk"], thead [class*="check"]'
+        ));
+        for (const hcb of headerCbs) { hcb.click(); wsSelected = true; }
+        if (wsSelected) await new Promise(r => setTimeout(r, 150));
+      }
+      // 전략 C: 일반 checkbox fallback
+      if (!wsSelected) {
+        Array.from(document.querySelectorAll('input[type="checkbox"]')).forEach(cb => {
+          cb.checked = true;
+          cb.dispatchEvent(new Event('change', { bubbles: true }));
+          cb.dispatchEvent(new Event('click',  { bubbles: true }));
+        });
+        await new Promise(r => setTimeout(r, 150));
+      }
+
       btn.click();
       for (let t = 0; t < 50; t++) { await new Promise(r => setTimeout(r, 100)); if (anyCaptured() || xhrUrl) break; }
       if (blobCaptured || xhrDataPromise || fetchDataPromise) await new Promise(r => setTimeout(r, 300));
 
+      window.alert = origAlert;
       document.removeEventListener('submit', submitEventHandler, true);
       HTMLFormElement.prototype.submit = origSubmit; XMLHttpRequest.prototype.open = origOpen;
       XMLHttpRequest.prototype.send = origSend; window.fetch = origFetch; URL.createObjectURL = origCOU;
