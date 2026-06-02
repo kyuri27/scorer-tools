@@ -295,10 +295,8 @@ async function extractSeumter() {
     await chrome.storage.session.set({ extractedData, cachedUrl: tab.url });
     renderResultSeumter(extractedData);
     statusEl.innerHTML = '<div class="status success">✅ 추출 완료!</div>';
-    // 심사결과 공고 바로가기 URL 수집
-    // tabs.onUpdated로 풀페이지 이동 URL 캡처 → 즉시 원래 페이지로 redirect
+    // 심사결과 공고 바로가기 URL 수집 (content script에서 이동 차단 + 새 탭 열기)
     if (extractedData['_hasResultNoticeBtn'] && !extractedData['심사결과공고_링크']) {
-      const originalUrl = tab.url;
       const setResultField = (url) => {
         const field = document.getElementById('resultNoticeUrlField');
         if (!field) return;
@@ -306,41 +304,14 @@ async function extractSeumter() {
           ? `<a href="${url}" target="_blank" style="font-size:11px; color:#2563eb; word-break:break-all;">${url}</a>`
           : `<div class="val" style="font-size:10px; color:#9ca3af;">자동 추출 불가 — 페이지에서 직접 확인하세요</div>`;
       };
-
-      let done = false;
-      const finish = (url) => {
-        if (done) return;
-        done = true;
-        clearTimeout(timer);
-        chrome.tabs.onUpdated.removeListener(onTabUpdated);
-        chrome.webNavigation.onHistoryStateUpdated.removeListener(onSpaNav);
+      chrome.tabs.sendMessage(tab.id, { action: 'clickResultNotice' }, resp => {
+        const url = resp?.url || '';
         extractedData['심사결과공고_링크'] = url;
         chrome.storage.session.set({ extractedData });
-        if (url) {
-          // 즉시 원래 페이지로 돌아오기
-          chrome.tabs.update(tab.id, { url: originalUrl });
-        }
         setResultField(url);
-      };
-
-      // 풀 페이지 로드 캡처 (changeInfo.url이 navigation 시작 시 제공됨)
-      const onTabUpdated = (tabId, changeInfo) => {
-        if (tabId !== tab.id || !changeInfo.url) return;
-        if (changeInfo.url === originalUrl) return;
-        finish(changeInfo.url);
-      };
-      // SPA(pushState) 캡처
-      const onSpaNav = (details) => {
-        if (details.tabId !== tab.id || details.url === originalUrl) return;
-        finish(details.url);
-      };
-
-      chrome.tabs.onUpdated.addListener(onTabUpdated);
-      chrome.webNavigation.onHistoryStateUpdated.addListener(onSpaNav);
-      const timer = setTimeout(() => finish(''), 4000);
-
-      // 버튼 클릭
-      chrome.tabs.sendMessage(tab.id, { action: 'clickResultNotice' });
+        // URL을 캡처한 경우 새 탭에서 열기
+        if (url) chrome.tabs.create({ url, active: false });
+      });
     }
   } catch (e) {
     statusEl.innerHTML = `<div class="status error">❌ 오류: ${e.message}</div>`;
@@ -438,7 +409,7 @@ function renderResultSeumter(data) {
       </div>`;
     } else {
       html += `<div class="field" id="resultNoticeUrlField">
-        <div class="val" style="font-size:10px; color:#9ca3af;">URL 수집 중...</div>
+        <div class="val" style="font-size:10px; color:#9ca3af;">확인 중...</div>
       </div>`;
     }
   }

@@ -321,9 +321,26 @@ window.__seumterMsgHandler = (request, sender, sendResponse) => {
     if (el) { el.click(); sendResponse({ success: true }); }
     else sendResponse({ success: false, error: '요소 없음' });
   } else if (request.action === 'clickResultNotice') {
-    const btn = document.querySelector('[data-seumter-result-notice]');
-    if (btn) btn.click();
-    sendResponse({ success: !!btn });
+    (async () => {
+      const btn = document.querySelector('[data-seumter-result-notice]');
+      if (!btn) { sendResponse({ url: '' }); return; }
+      let captured = '';
+      const origPush    = history.pushState.bind(history);
+      const origReplace = history.replaceState.bind(history);
+      const origOpen    = window.open;
+      const origAlert   = window.alert;
+      window.alert = () => {};
+      history.pushState    = (s, t, url) => { if (!captured && url) captured = new URL(url, location.origin).href; };
+      history.replaceState = (s, t, url) => { if (!captured && url) captured = new URL(url, location.origin).href; };
+      window.open          = (url, ...a) => { if (!captured && url && url !== 'about:blank') { captured = url; return null; } return origOpen.call(window, url, ...a); };
+      btn.click();
+      await new Promise(r => setTimeout(r, 400));
+      history.pushState    = origPush;
+      history.replaceState = origReplace;
+      window.open          = origOpen;
+      window.alert         = origAlert;
+      sendResponse({ url: captured });
+    })();
   }
   return true;
 };
