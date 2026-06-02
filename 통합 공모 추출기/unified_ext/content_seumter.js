@@ -320,6 +320,29 @@ function extractData() {
         }
       } catch(e) {}
     }
+    // 방법 5: pushState/replaceState 가로채기 (Next.js 클라이언트 라우팅)
+    //   - 실제 페이지 이동을 막고 이동하려는 URL만 캡처
+    if (!resultNoticeUrl) {
+      try {
+        let captured = '';
+        const origPush    = history.pushState.bind(history);
+        const origReplace = history.replaceState.bind(history);
+        const origOpen    = window.open;
+        const origAlert   = window.alert;
+        window.alert = () => {};
+        // 페이지 이동 차단 + URL 캡처
+        history.pushState    = (s, t, url) => { if (!captured && url) captured = String(url); };
+        history.replaceState = (s, t, url) => { if (!captured && url) captured = String(url); };
+        window.open = (url, ...a) => { if (!captured && url && url !== 'about:blank') { captured = String(url); return null; } return origOpen.call(window, url, ...a); };
+        goBtn.click();
+        // 즉시 복원 (JS 단일 스레드 - 클릭 핸들러는 동기 실행)
+        history.pushState    = origPush;
+        history.replaceState = origReplace;
+        window.open  = origOpen;
+        window.alert = origAlert;
+        if (captured) resultNoticeUrl = new URL(captured, location.origin).href;
+      } catch(e) {}
+    }
   }
   result['심사결과공고_링크'] = resultNoticeUrl;
   result['_hasResultNoticeBtn'] = !!goBtn;
