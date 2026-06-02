@@ -448,7 +448,7 @@ function renderResultSeumter(data) {
             ? `<a href="${url}" target="_blank" style="font-size:11px; color:#2563eb; word-break:break-all;">${url}</a>`
             : `<div class="val" style="font-size:10px; color:#9ca3af;">자동 추출 불가 — 페이지에서 직접 확인하세요</div>`;
         }
-        if (url) chrome.tabs.create({ url, active: true });
+        if (url) chrome.tabs.create({ url, active: false }); // 백그라운드 탭으로 열어 팝업 유지
       });
     });
   }
