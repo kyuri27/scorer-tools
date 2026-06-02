@@ -1552,7 +1552,9 @@ function renderSummary(s) {
   // 세움터 이름 기준으로 참석 여부 결정
   const judges = seumterJudges.map(j => {
     const match = normalizedAttended.find(n => n.seumterName === j.name);
-    let status = match ? '참석' : (pdfAttended.length > 0 ? '불참' : '참석');
+    // 결과 파일 없이 공고 파일만 분석한 경우 참석 여부 판단 불가 → 기본 참석
+    const hasResultFiles = resultFiles.length > 0;
+    let status = match ? '참석' : (pdfAttended.length > 0 && hasResultFiles ? '불참' : '참석');
     if (j.name === s.chairperson) status = '위원장';
     const pdfNameDiff = match && match.pdfName ? match.pdfName : null;
     const type = j.type || '외부'; // type 비어있으면 외부로 기본값
