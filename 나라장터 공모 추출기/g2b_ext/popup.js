@@ -789,31 +789,61 @@ async function captureBulkDownload(tabId) {
       const origAlert = window.alert;
       window.alert = () => {};
 
-      // 파일 체크박스 전체 선택 (다중 전략)
-      // 전략 1: id에 grdFile/file/File/attach 포함하는 컨테이너의 체크박스
-      let cbs = Array.from(document.querySelectorAll(
-        '[id*="grdFile"] input[type="checkbox"], [id*="file"] input[type="checkbox"], ' +
-        '[id*="File"] input[type="checkbox"], [id*="attach"] input[type="checkbox"], ' +
-        '[id*="Attach"] input[type="checkbox"]'
-      ));
-      // 전략 2: 버튼 부모를 올라가며 체크박스 탐색
-      if (cbs.length === 0) {
-        let el = btn.parentElement;
-        for (let i = 0; i < 6 && el; i++, el = el.parentElement) {
-          const found = Array.from(el.querySelectorAll('input[type="checkbox"]'));
-          if (found.length > 0) { cbs = found; break; }
-        }
+      // ── 파일 전체 선택 (WebSquare + DOM 다중 전략) ──
+      const fileGridIds = ['grdFile','grdFileList','gridFile','grdAtchFile','grdAtchFileList',
+                           'grd_file','grdAtchFileInfo','grdNtceFileInfo','grdAtchFileLst'];
+      let wsSelected = false;
+
+      // 전략 A: WebSquare 그리드 API (나라장터는 WebSquare 프레임워크 사용)
+      for (const gid of fileGridIds) {
+        let g = null;
+        try { g = window.scwin?.[gid] ?? window.w2?.getObjectById?.(gid); } catch(e) {}
+        if (!g) continue;
+        try {
+          // 전체 체크 메서드 (WebSquare 버전별로 이름 다름)
+          const checkAllMethods = ['setCheckAll','checkAll','selectAll','setAllChecked','setCheckedAll'];
+          for (const m of checkAllMethods) {
+            if (typeof g[m] === 'function') { g[m](true); wsSelected = true; break; }
+          }
+          if (!wsSelected) {
+            // 행별 체크
+            const rc = typeof g.getRowCount === 'function' ? (g.getRowCount() || 0) : 0;
+            if (rc > 0) {
+              for (let i = 0; i < rc; i++) {
+                const rowMethods = ['setCheck','setChecked','setRowChecked','checkRow'];
+                for (const m of rowMethods) {
+                  if (typeof g[m] === 'function') { try { g[m](i, true); } catch(e) {} break; }
+                }
+              }
+              wsSelected = true;
+            }
+          }
+        } catch(e) {}
+        if (wsSelected) { await new Promise(r => setTimeout(r, 150)); break; }
       }
-      // 전략 3: 페이지 전체 체크박스 (최후 수단)
-      if (cbs.length === 0) {
-        cbs = Array.from(document.querySelectorAll('input[type="checkbox"]'));
+
+      // 전략 B: DOM 헤더 체크박스 클릭 (그리드 헤더의 전체선택 체크박스)
+      if (!wsSelected) {
+        const fileSection = btn.closest('[id*="File"],[id*="file"],[id*="grd"],[id*="attach"]')
+          || btn.parentElement;
+        const headerCbs = Array.from((fileSection || document).querySelectorAll(
+          'thead input[type="checkbox"], th input[type="checkbox"], ' +
+          'thead [class*="chk"], thead [class*="check"]'
+        ));
+        for (const hcb of headerCbs) { hcb.click(); wsSelected = true; }
+        if (wsSelected) await new Promise(r => setTimeout(r, 150));
       }
-      cbs.forEach(cb => {
-        cb.checked = true;
-        cb.dispatchEvent(new Event('change', { bubbles: true }));
-        cb.dispatchEvent(new Event('click',  { bubbles: true }));
-      });
-      if (cbs.length > 0) await new Promise(r => setTimeout(r, 200));
+
+      // 전략 C: 일반 input[type="checkbox"] 직접 체크 (fallback)
+      if (!wsSelected) {
+        const allCbs = Array.from(document.querySelectorAll('input[type="checkbox"]'));
+        allCbs.forEach(cb => {
+          cb.checked = true;
+          cb.dispatchEvent(new Event('change', { bubbles: true }));
+          cb.dispatchEvent(new Event('click',  { bubbles: true }));
+        });
+        if (allCbs.length > 0) await new Promise(r => setTimeout(r, 150));
+      }
 
       btn.click();
       for (let t = 0; t < 50; t++) {
