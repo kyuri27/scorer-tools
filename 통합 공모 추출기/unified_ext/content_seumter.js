@@ -319,24 +319,55 @@ window.__seumterMsgHandler = (request, sender, sendResponse) => {
     if (el) { el.click(); sendResponse({ success: true }); }
     else sendResponse({ success: false, error: '요소 없음' });
   } else if (request.action === 'getResultNoticeUrl') {
-    // pushState 가로채기로 페이지 이동 없이 URL 캡처
-    const btn = document.querySelector('[data-seumter-result-notice]');
-    if (!btn) { sendResponse({ url: '' }); return true; }
-    let captured = '';
-    const origPush    = history.pushState.bind(history);
-    const origReplace = history.replaceState.bind(history);
-    const origOpen    = window.open;
-    const origAlert   = window.alert;
-    window.alert = () => {};
-    history.pushState    = (s, t, url) => { if (!captured && url) captured = String(url); };
-    history.replaceState = (s, t, url) => { if (!captured && url) captured = String(url); };
-    window.open = (url, ...a) => { if (!captured && url && url !== 'about:blank') { captured = String(url); return null; } return origOpen.call(window, url, ...a); };
-    btn.click();
-    history.pushState    = origPush;
-    history.replaceState = origReplace;
-    window.open  = origOpen;
-    window.alert = origAlert;
-    sendResponse({ url: captured ? new URL(captured, location.origin).href : '' });
+    // Next.js는 pushState를 비동기로 호출하므로 클릭 후 300ms 동안 인터셉트 유지
+    (async () => {
+      const btn = document.querySelector('[data-seumter-result-notice]');
+      if (!btn) { sendResponse({ url: '' }); return; }
+
+      let captured = '';
+      const origPush    = history.pushState.bind(history);
+      const origReplace = history.replaceState.bind(history);
+      const origOpen    = window.open;
+      const origAlert   = window.alert;
+      const origAClick  = HTMLAnchorElement.prototype.click;
+      let   origHrefDesc = null;
+
+      const capture = (url) => { if (!captured && url && url !== 'about:blank') captured = String(url); };
+
+      window.alert         = () => {};
+      history.pushState    = (s, t, url) => capture(url);
+      history.replaceState = (s, t, url) => capture(url);
+      window.open          = (url, ...a) => { capture(url); return null; };
+      HTMLAnchorElement.prototype.click = function() {
+        if (this.href && !this.href.startsWith('javascript:') && !this.href.startsWith('blob:'))
+          { capture(this.href); return; }
+        origAClick.call(this);
+      };
+      try {
+        origHrefDesc = Object.getOwnPropertyDescriptor(Location.prototype, 'href');
+        if (origHrefDesc?.configurable) {
+          Object.defineProperty(Location.prototype, 'href', {
+            ...origHrefDesc,
+            set(url) { capture(url); },
+            configurable: true,
+          });
+        }
+      } catch(e) {}
+
+      btn.click();
+      // Next.js 비동기 라우팅 완료까지 대기
+      await new Promise(r => setTimeout(r, 350));
+
+      // 복원
+      history.pushState    = origPush;
+      history.replaceState = origReplace;
+      window.open          = origOpen;
+      window.alert         = origAlert;
+      HTMLAnchorElement.prototype.click = origAClick;
+      try { if (origHrefDesc) Object.defineProperty(Location.prototype, 'href', origHrefDesc); } catch(e) {}
+
+      sendResponse({ url: captured ? new URL(captured, location.origin).href : '' });
+    })();
   }
   return true;
 };
