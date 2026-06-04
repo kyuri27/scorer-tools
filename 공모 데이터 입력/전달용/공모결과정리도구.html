@@ -2016,6 +2016,7 @@ async function renderDownloads(data) {
     item.innerHTML = `
       <span class="download-item-name">${icon} ${r.filename} <span style="color:#6b7280;">(${pageInfo}${srcNote})</span></span>
       <a href="${r.url}" download="${r.filename}"><button>다운로드</button></a>
+      <button class="danger" onclick="removeDownloadItem(this, '${r.filename.replace(/'/g, "\\'")}')">✕</button>
     `;
     grid.appendChild(item);
   });
@@ -2051,6 +2052,16 @@ async function renderDownloads(data) {
   document.getElementById('downloadCard').style.display = 'block';
   document.getElementById('resetBar').style.display = 'block';
   document.getElementById('downloadCard').scrollIntoView({ behavior: 'smooth' });
+}
+
+function removeDownloadItem(btn, filename) {
+  if (window._processedUploadFiles) {
+    window._processedUploadFiles = window._processedUploadFiles.filter(f => f.filename !== filename);
+  }
+  if (window._processedNoticeFiles) {
+    window._processedNoticeFiles = window._processedNoticeFiles.filter(f => f.filename !== filename);
+  }
+  btn.closest('.download-item').remove();
 }
 </script>
 </body>
