@@ -361,6 +361,13 @@ def add_judge(page, judge: dict) -> tuple:
     is_backup = judge["type"] == "예비"
     print(f"  → 검색: {name} ({affiliation})")
 
+    # DataTable 초기화 대기 — JS 바인딩 전에 fill하면 필터링 안 됨
+    try:
+        page.locator('#dataTable tbody tr').first.wait_for(state="visible", timeout=5000)
+        page.wait_for_timeout(300)
+    except Exception:
+        pass
+
     try:
         sb = page.locator('input[aria-controls="dataTable"]')
         sb.wait_for(state="visible", timeout=5000)
@@ -369,7 +376,6 @@ def add_judge(page, judge: dict) -> tuple:
         sb.fill(name)
     except Exception:
         return False, "검색 박스를 찾지 못함"
-
 
     # DataTable 필터 완료 대기 (최대 3초)
     # 0행은 필터링 중간 상태일 수 있으므로 1행 이상 + 2회 연속 동일할 때 안정으로 판단
@@ -387,8 +393,6 @@ def add_judge(page, judge: dict) -> tuple:
             _stable = 0
         _prev_rc = _cur_rc
 
-
-
     try:
         rows = page.locator('#dataTable tbody tr')
         rc = rows.count()
@@ -397,6 +401,20 @@ def add_judge(page, judge: dict) -> tuple:
         first_text = rows.nth(0).inner_text()
         if "No data" in first_text or ("데이터" in first_text and "없" in first_text):
             return False, "검색 결과 없음"
+
+        # 검색 결과에 이름이 포함되어 있는지 검증 — 필터링 안 됐으면 재시도
+        if rc >= 10 and not any(name in rows.nth(i).inner_text() for i in range(min(rc, 10))):
+            print(f"     ⚠️ 검색 필터링 안 됨, 재시도...")
+            sb = page.locator('input[aria-controls="dataTable"]')
+            sb.click()
+            sb.fill("")
+            page.wait_for_timeout(300)
+            sb.fill(name)
+            page.wait_for_timeout(1500)
+            rows = page.locator('#dataTable tbody tr')
+            rc = rows.count()
+            if rc == 0:
+                return False, "검색 결과 없음 (재시도)"
 
         if rc == 1:
             target_idx = 0
