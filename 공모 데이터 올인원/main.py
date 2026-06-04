@@ -206,60 +206,6 @@ def start_local_server() -> _ReuseAddrServer:
     return server
 
 
-class _Handler(BaseHTTPRequestHandler):
-    def log_message(self, *a):
-        pass  # 서버 로그 억제
-
-    def _cors(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-
-    def do_OPTIONS(self):
-        self.send_response(200)
-        self._cors()
-        self.end_headers()
-
-    def do_GET(self):
-        if self.path == "/status":
-            body = json.dumps({"status": "ready"}).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self._cors()
-            self.end_headers()
-            self.wfile.write(body)
-        else:
-            self.send_response(404)
-            self.end_headers()
-
-    def do_POST(self):
-        if self.path in ("/start-competition", "/start"):
-            try:
-                length = int(self.headers.get("Content-Length", 0))
-                data = json.loads(self.rfile.read(length))
-                task_type = "info" if self.path == "/start-competition" else "result"
-                _trigger_queue.put((task_type, data))
-                self.send_response(200)
-                self.send_header("Content-Type", "application/json")
-                self._cors()
-                self.end_headers()
-                self.wfile.write(json.dumps({"ok": True}).encode())
-            except Exception as e:
-                self.send_response(500)
-                self._cors()
-                self.end_headers()
-                self.wfile.write(str(e).encode())
-        else:
-            self.send_response(404)
-            self.end_headers()
-
-
-def start_local_server() -> HTTPServer:
-    server = HTTPServer(("localhost", SERVER_PORT), _Handler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    return server
-
-
 def _wait_for_trigger() -> tuple:
     """
     키보드 입력(공모 ID) 또는 HTTP 트리거를 동시에 기다림.
@@ -938,6 +884,10 @@ def run_info_task(page, context, auth_path: Path, data: dict, task_mode: int = 1
         if notice_files_data:
             print(f"\n[공고파일 업로드] {len(notice_files_data)}개")
             _clear_and_save_files(SCRIPT_DIR / NOTICE_FILES_DIR, notice_files_data)
+            try:
+                page.wait_for_load_state("domcontentloaded", timeout=5000)
+            except Exception:
+                pass
             ok, msg = upload_notice_files(page, comp_id)
             print(f"  {'✅' if ok else '❌'} {msg}")
         else:
@@ -947,6 +897,10 @@ def run_info_task(page, context, auth_path: Path, data: dict, task_mode: int = 1
     if task_mode in (1, 2, 5):
         if agency:
             print(f"\n[발주처 입력]")
+            try:
+                page.wait_for_load_state("domcontentloaded", timeout=5000)
+            except Exception:
+                pass
             run_organization_input(page, comp_id, agency=agency)
         else:
             print("\n[발주처 입력] 전달받은 발주처 없음, 건너뜁니다.")
