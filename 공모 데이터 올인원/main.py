@@ -191,6 +191,11 @@ class _Handler(BaseHTTPRequestHandler):
             self.end_headers()
 
 
+class _ReuseAddrServer(HTTPServer):
+    """SO_REUSEADDR — 이전 실행이 포트를 점유 중일 때도 바로 재시작 가능"""
+    allow_reuse_address = True
+
+
 def start_local_server() -> _ReuseAddrServer:
     try:
         server = _ReuseAddrServer(("localhost", SERVER_PORT), _Handler)
@@ -199,9 +204,6 @@ def start_local_server() -> _ReuseAddrServer:
         import sys; sys.exit(1)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
-class _ReuseAddrServer(HTTPServer):
-    """SO_REUSEADDR — 이전 실행이 포트를 점유 중일 때도 바로 재시작 가능"""
-    allow_reuse_address = True
 
 
 class _Handler(BaseHTTPRequestHandler):
