@@ -352,7 +352,7 @@ def load_judges_from_payload(judges_raw: list) -> list:
 
 
 def sort_judges(judges: list) -> list:
-    return sorted(judges, key=lambda j: ({"외부": 0, "예비": 1}.get(j["type"], 2), j["name"]))
+    return sorted(judges, key=lambda j: {"외부": 0, "예비": 1}.get(j["type"], 2))
 
 
 def get_left_table(page):
