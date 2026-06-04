@@ -1570,8 +1570,7 @@ function renderSummary(s) {
   judges.sort((a, b) => {
     const aR = (a.type || '').includes('예비') ? 1 : 0;
     const bR = (b.type || '').includes('예비') ? 1 : 0;
-    if (aR !== bR) return aR - bR;
-    return a.name.localeCompare(b.name, 'ko');
+    return aR - bR;
   });
 
   // 심사위원 상태 전역 저장 (수동 변경용)
