@@ -1998,6 +1998,8 @@ async function renderDownloads(data) {
     area.appendChild(w);
   }
 
+  window._downloadResults = results;
+
   if (results.length === 0) {
     area.innerHTML += '<div class="status-msg status-warning">생성된 PDF가 없습니다.</div>';
     document.getElementById('downloadCard').style.display = 'block';
@@ -2028,7 +2030,7 @@ async function renderDownloads(data) {
     allBtn.disabled = true;
     allBtn.textContent = '⏳ 압축 중...';
     try {
-      const zipFiles = await Promise.all(results.map(async r => {
+      const zipFiles = await Promise.all((window._downloadResults || []).map(async r => {
         const resp = await fetch(r.url);
         const buf = await resp.arrayBuffer();
         return { name: r.filename, data: new Uint8Array(buf) };
@@ -2055,6 +2057,9 @@ async function renderDownloads(data) {
 }
 
 function removeDownloadItem(btn, filename) {
+  if (window._downloadResults) {
+    window._downloadResults = window._downloadResults.filter(r => r.filename !== filename);
+  }
   if (window._processedUploadFiles) {
     window._processedUploadFiles = window._processedUploadFiles.filter(f => f.filename !== filename);
   }
