@@ -1549,24 +1549,30 @@ function renderSummary(s) {
   // PDF 이름을 세움터 이름으로 정규화
   const normalizedAttended = normalizePdfNames(pdfAttended, seumterJudges);
 
-  // 세움터 이름 기준으로 참석 여부 결정
-  const judges = seumterJudges.map(j => {
-    const match = normalizedAttended.find(n => n.seumterName === j.name);
-    // 결과 파일 없이 공고 파일만 분석한 경우 참석 여부 판단 불가 → 기본 참석
-    const hasResultFiles = resultFiles.length > 0;
-    let status = match ? '참석' : (pdfAttended.length > 0 && hasResultFiles ? '불참' : '참석');
-    if (j.name === s.chairperson) status = '위원장';
-    const pdfNameDiff = match && match.pdfName ? match.pdfName : null;
-    const type = j.type || '외부'; // type 비어있으면 외부로 기본값
-    return { ...j, type, status, pdfNameDiff };
-  });
+  const hasResultFiles = resultFiles.length > 0;
+  const judges = [];
+  const addedNames = new Set();
 
-  // PDF에서 추출됐지만 세움터에 없는 이름 (예비위원 대체 참석 등)
+  // 1. PDF에 나온 순서대로 먼저 추가
   for (const n of normalizedAttended) {
-    if (!judges.find(j => j.name === n.seumterName)) {
-      judges.push({ type: '예비', name: n.seumterName, org: '', status: '참석', pdfNameDiff: n.pdfName });
-    }
+    const seumterJudge = seumterJudges.find(j => j.name === n.seumterName);
+    const base = seumterJudge ? { ...seumterJudge } : { type: '예비', name: n.seumterName, org: '' };
+    let status = '참석';
+    if (base.name === s.chairperson) status = '위원장';
+    judges.push({ ...base, type: base.type || '외부', status, pdfNameDiff: n.pdfName });
+    addedNames.add(n.seumterName);
   }
+
+  // 2. PDF에 없는 세움터 심사위원을 세움터 순서대로 뒤에 추가
+  for (const j of seumterJudges) {
+    if (addedNames.has(j.name)) continue;
+    let status = pdfAttended.length > 0 && hasResultFiles ? '불참' : '참석';
+    if (j.name === s.chairperson) status = '위원장';
+    judges.push({ ...j, type: j.type || '외부', status, pdfNameDiff: null });
+    addedNames.add(j.name);
+  }
+
+  // 예비위원은 외부위원 뒤로 (각 그룹 내 순서는 유지)
   judges.sort((a, b) => {
     const aR = (a.type || '').includes('예비') ? 1 : 0;
     const bR = (b.type || '').includes('예비') ? 1 : 0;
