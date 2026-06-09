@@ -291,7 +291,8 @@ function extractData() {
   const goBtn = Array.from(document.querySelectorAll('button, a')).find(el => {
     if (el.hasAttribute('data-seumter-judge')) return false;
     const text = el.textContent.replace(/\s+/g, '');
-    return text.includes('바로가기') && (text.includes('심사결과') || text.includes('공고'));
+    // 세 단어 모두 포함해야 함 (오탐 방지)
+    return text.includes('심사결과') && text.includes('공고') && text.includes('바로가기');
   });
   if (goBtn) goBtn.setAttribute('data-seumter-result-notice', '1');
   result['심사결과공고_링크'] = '';
