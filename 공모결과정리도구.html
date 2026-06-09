@@ -416,8 +416,13 @@ function applySeumterJSON() {
     const name = cleanCompetitionName(data.competitionName || '');
     const build = data.buildType ? `(${data.buildType})` : '';
     const judgeCount = (data.judges_planned || []).length;
+    // 공모명을 입력란에 자동으로 채워서 바로 수정 가능하게
+    const nameInput = document.getElementById('manualCompetitionName');
+    if (nameInput && !nameInput.value.trim()) {
+      nameInput.value = name + (build ? build : '');
+    }
     statusEl.innerHTML = `<div class="status-msg status-success">
-      ✅ 적용됨 — <b>${name}${build}</b> · 심사위원 ${judgeCount}명
+      ✅ 적용됨 — 심사위원 ${judgeCount}명 · 공모명을 아래에서 확인·수정하세요 👇
     </div>`;
   } catch (e) {
     document.getElementById('seumterStatus').innerHTML =
@@ -430,6 +435,7 @@ function clearSeumterJSON() {
   seumterData = null;
   document.getElementById('seumterJsonInput').value = '';
   document.getElementById('seumterStatus').innerHTML = '';
+  document.getElementById('manualCompetitionName').value = '';
 }
 
 // ───── 이름 정리 (띄어쓰기 제거) ─────
@@ -1477,7 +1483,7 @@ function cleanCompetitionName(raw) {
   // 신축 외 공사 유형: 괄호로 이동
   const MODIFIERS = ['리모델링', '개축', '증축', '대수선', '보강', '재건축', '복원', '이전'];
   // 제거할 접미사 (긴 것 먼저 처리)
-  const SUFFIXES = ['설계공모', '제안공모', '현상공모', '지명공모', '설계경기', '건축설계용역 일반', '건축설계용역', '설계용역', '용역', '공모', '사업'];
+  const SUFFIXES = ['설계공모', '제안공모', '현상공모', '지명공모', '설계경기', '건축설계용역 일반', '건축설계용역', '설계용역', '용역', '공모', '건립', '사업'];
 
   let s = raw.trim();
 
