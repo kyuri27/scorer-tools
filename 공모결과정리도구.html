@@ -762,6 +762,7 @@ function resetAll() {
   _awardsTxtHandle = null;
   window._judgeStatusOverrides = {};
   window._judgesData = [];
+  window._judgeCustomOrder = null;
 
   // 맨 위로 스크롤
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1528,6 +1529,30 @@ function toggleJudgeStatus(btn, name, originalStatus) {
   btn.innerHTML = judgeStatusPill(next) + (changed ? ' <span style="color:#f59e0b;font-size:11px;" title="수동 변경됨">✏️</span>' : '');
 }
 
+// ───── 심사위원 행 드래그 순서 변경 ─────
+let _dragJudgeIdx = null;
+function judgeRowDragStart(idx) {
+  _dragJudgeIdx = idx;
+}
+function judgeRowDragOver(e) {
+  e.preventDefault();
+  e.currentTarget.style.outline = '2px solid #2563eb';
+}
+function judgeRowDragLeave(e) {
+  e.currentTarget.style.outline = '';
+}
+function judgeRowDrop(e, targetIdx) {
+  e.preventDefault();
+  e.currentTarget.style.outline = '';
+  if (_dragJudgeIdx === null || _dragJudgeIdx === targetIdx) return;
+  const judges = window._judgesData;
+  const moved = judges.splice(_dragJudgeIdx, 1)[0];
+  judges.splice(targetIdx, 0, moved);
+  window._judgeCustomOrder = judges.map(j => j.name);
+  _dragJudgeIdx = null;
+  renderSummary(window._currentData);
+}
+
 // ───── 결과 렌더링 ─────
 function renderSummary(s) {
   const baseName = getCompetitionName(s) || s.competitionName || '';
@@ -1579,13 +1604,25 @@ function renderSummary(s) {
     return aR - bR;
   });
 
+  // 수동으로 저장된 순서가 있으면 적용
+  if (window._judgeCustomOrder && window._judgeCustomOrder.length > 0) {
+    judges.sort((a, b) => {
+      const ai = window._judgeCustomOrder.indexOf(a.name);
+      const bi = window._judgeCustomOrder.indexOf(b.name);
+      if (ai === -1 && bi === -1) return 0;
+      if (ai === -1) return 1;
+      if (bi === -1) return -1;
+      return ai - bi;
+    });
+  }
+
   // 심사위원 상태 전역 저장 (수동 변경용)
   window._judgesData = judges;
   if (!window._judgeStatusOverrides) window._judgeStatusOverrides = {};
 
   if (judges.length) {
-    html += `<h4>👥 심사위원 참석 현황 <span style="font-size:11px;font-weight:400;color:#6b7280;">— 상태 클릭해서 수동 변경 가능</span></h4>`;
-    html += `<table class="result-table"><thead><tr><th>구분</th><th>성명</th><th>소속</th><th>상태</th></tr></thead><tbody>`;
+    html += `<h4>👥 심사위원 참석 현황 <span style="font-size:11px;font-weight:400;color:#6b7280;">— 상태 클릭 변경 · 행 드래그로 순서 변경</span></h4>`;
+    html += `<table class="result-table" id="judgesTable"><thead><tr><th style="width:24px;"></th><th>구분</th><th>성명</th><th>소속</th><th>상태</th></tr></thead><tbody>`;
     judges.forEach((j, idx) => {
       const curStatus = window._judgeStatusOverrides[j.name] ?? j.status;
       const changed = (curStatus !== j.status);
@@ -1596,7 +1633,13 @@ function renderSummary(s) {
       const typePill = j.type === '예비'
         ? `<span class="pill pill-reserve">예비</span>`
         : `<span class="pill" style="background:#dbeafe;color:#1e40af;">외부</span>`;
-      html += `<tr>
+      html += `<tr draggable="true"
+        ondragstart="judgeRowDragStart(${idx})"
+        ondragover="judgeRowDragOver(event)"
+        ondragleave="judgeRowDragLeave(event)"
+        ondrop="judgeRowDrop(event, ${idx})"
+        style="cursor:default;">
+        <td style="color:#9ca3af;cursor:grab;font-size:16px;text-align:center;padding:4px 6px;" title="드래그해서 순서 변경">⠿</td>
         <td>${typePill}</td>
         <td>${nameDisplay}</td>
         <td>${j.org || '-'}</td>
