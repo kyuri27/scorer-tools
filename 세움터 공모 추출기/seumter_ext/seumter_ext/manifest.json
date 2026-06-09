@@ -4,16 +4,16 @@
   "version": "1.1",
   "description": "세움터 공모 상세 페이지에서 공모 정보를 자동 추출합니다.",
   "permissions": ["activeTab", "scripting", "clipboardWrite", "storage", "downloads", "debugger"],
-  "host_permissions": ["*://*.eais.go.kr/*"],
+  "host_permissions": ["*://*.eais.go.kr/*", "https://generativelanguage.googleapis.com/*", "<all_urls>"],
   "background": {
     "service_worker": "background.js"
   },
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
-      "16": "icon.png",
-      "48": "icon.png",
-      "128": "icon.png"
+      "16": "icon_16.png",
+      "48": "icon_48.png",
+      "128": "icon_128.png"
     }
   },
   "content_scripts": [
@@ -23,8 +23,8 @@
     }
   ],
   "icons": {
-    "16": "icon.png",
-    "48": "icon.png",
-    "128": "icon.png"
+    "16": "icon_16.png",
+    "48": "icon_48.png",
+    "128": "icon_128.png"
   }
 }

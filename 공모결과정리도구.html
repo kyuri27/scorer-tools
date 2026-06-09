@@ -1911,6 +1911,7 @@ async function runAwardInput() {
       body: JSON.stringify({
         competition_id: competitionId,
         awards_txt: buildAwardsTxtContent(data),
+        result_url: data.resultNoticeUrl || '',
         images,
         upload_files: uploadFiles,
         judges,
@@ -2193,11 +2194,10 @@ async function renderDownloads(data) {
     return groups;
   }
 
-  const noticeGroups = groupFiles(noticeFiles, noticeDatePart, true);  // 공고 파일: 키워드 추출
-  const resultGroups = groupFiles(resultFiles, resultDatePart, false); // 결과 파일: 기존 방식
+  const noticeGroups = groupFiles(noticeFiles, noticeDatePart, true);  // 공고 파일: 키워드 추출 (합본 안 함)
+  const resultGroups = groupFiles(resultFiles, resultDatePart, false); // 결과 파일: 같은 이름끼리 합본
   // 공고 파일 그룹에 isNotice 표시
   for (const g of Object.values(noticeGroups)) g.isNotice = true;
-  const allGroups = { ...noticeGroups, ...resultGroups };
 
   // 같은 그룹 내 파일들은 파일명 알파벳 순으로 정렬
   for (const g of Object.values(allGroups)) {
@@ -2217,8 +2217,8 @@ async function renderDownloads(data) {
     return btoa(bin);
   }
 
-  // PDF: 같은 접두사끼리 합본
-  for (const [prefix, g] of Object.entries(allGroups)) {
+  // 결과 파일 PDF: 같은 접두사끼리 합본
+  for (const [prefix, g] of Object.entries(resultGroups)) {
     const pdfFiles = g.files.filter(f => f.type === 'pdf');
     if (pdfFiles.length === 0) continue;
     try {
@@ -2233,11 +2233,26 @@ async function renderDownloads(data) {
       const filename = `${prefix}_${compName}${g.datePart}.pdf`;
       const blob = new Blob([bytes], { type: 'application/pdf' });
       results.push({ filename, url: URL.createObjectURL(blob), pageCount: newDoc.getPageCount(), fileCount: pdfFiles.length });
-      const fileObj = { filename, data: toBase64(bytes) };
-      window._processedUploadFiles.push(fileObj);
-      if (g.isNotice) window._processedNoticeFiles.push(fileObj);
+      window._processedUploadFiles.push({ filename, data: toBase64(bytes) });
     } catch (e) {
       warnings.push(`"${prefix}" 처리 실패: ${e.message}`);
+    }
+  }
+
+  // 공고 파일 PDF: 합본 없이 개별 이름 변경
+  for (const [prefix, g] of Object.entries(noticeGroups)) {
+    for (const f of g.files.filter(f => f.type === 'pdf')) {
+      try {
+        const bytes = new Uint8Array(f.arrayBuffer);
+        const filename = `${prefix}_${compName}${noticeDatePart}.pdf`;
+        const blob = new Blob([bytes], { type: 'application/pdf' });
+        const fileObj = { filename, data: toBase64(bytes) };
+        results.push({ filename, url: URL.createObjectURL(blob), pageCount: f.pageCount, fileCount: 1 });
+        window._processedUploadFiles.push(fileObj);
+        window._processedNoticeFiles.push(fileObj);
+      } catch (e) {
+        warnings.push(`"${f.name}" 처리 실패: ${e.message}`);
+      }
     }
   }
 

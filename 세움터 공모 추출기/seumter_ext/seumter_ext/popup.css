@@ -7,9 +7,45 @@ body {
 .header {
   background: #2563eb; color: white; padding: 14px 16px;
 }
+.header-row { display: flex; justify-content: space-between; align-items: center; }
 .header h1 { font-size: 15px; font-weight: 600; }
 .header p { font-size: 11px; opacity: 0.8; margin-top: 2px; }
+.icon-btn {
+  width: auto; background: transparent; border: none;
+  font-size: 16px; cursor: pointer; padding: 2px 4px; opacity: 0.8;
+}
+.icon-btn:hover { opacity: 1; background: transparent; }
+
+.settings-panel {
+  background: #f0f4ff; border-bottom: 1px solid #c7d7fd;
+  padding: 10px 14px;
+}
+.settings-panel.hidden { display: none; }
+.settings-label { font-size: 11px; color: #374151; margin-bottom: 6px; font-weight: 500; }
+.settings-row { display: flex; gap: 6px; }
+.settings-row input {
+  flex: 1; padding: 6px 8px; border: 1px solid #c7d7fd;
+  border-radius: 5px; font-size: 12px; font-family: inherit;
+}
+.save-btn {
+  width: auto; padding: 6px 12px; font-size: 12px;
+  background: #2563eb; color: white; border-radius: 5px;
+}
+.save-btn:hover { background: #1d4ed8; }
+.api-key-status { font-size: 11px; margin-top: 5px; color: #166534; }
+
+button.secondary {
+  background: #6b7280; color: white;
+}
+button.secondary:hover { background: #4b5563; }
 .body { padding: 14px; }
+.footer {
+  text-align: center;
+  font-size: 10px;
+  color: #9ca3af;
+  padding: 6px 0 8px;
+  border-top: 1px solid #e5e7eb;
+}
 
 button {
   width: 100%; padding: 10px; background: #2563eb; color: white;
