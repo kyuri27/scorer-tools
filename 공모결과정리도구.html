@@ -1409,7 +1409,7 @@ function parseJudgesText(text) {
 
   for (const line of lines) {
     // 형식 2: 탭 또는 쉼표 구분 (심사위원/예비위원[탭/,]이름[탭/,]소속)
-    const hasSep = line.includes('\t') || /^(외부|본위원|예비)\s*,/.test(line);
+    const hasSep = line.includes('\t') || /^(외부위원?|본위원|예비위원?)\s*,/.test(line);
     if (hasSep) {
       const parts = line.includes('\t')
         ? line.split('\t').map(p => p.trim())
