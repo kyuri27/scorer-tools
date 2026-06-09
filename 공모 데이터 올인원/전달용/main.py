@@ -1000,35 +1000,24 @@ def _select_architect(page, search_name, extra_info, original_name=""):
 
 
 def _ensure_judging_toggles_on(page) -> bool:
-    toggled = 0
-    rows = page.locator("table tbody tr")
-    for i in range(rows.count()):
-        row = rows.nth(i)
-        if not row.inner_text().strip():
-            continue
-        for j in range(row.locator("input[type='checkbox']").count()):
-            cb = row.locator("input[type='checkbox']").nth(j)
-            try:
-                if not cb.is_checked():
-                    cb.check()
-                    toggled += 1
-                    print(f"     ↳ 행 {i+1}: 심사결과 파일 여부 ON")
-            except Exception:
-                pass
-    if toggled == 0:
-        off = page.locator(
-            "table tbody tr .toggle.off, "
-            "table tbody tr [class*='toggle'][class*='off'], "
-            "table tbody tr [class*='switch'][aria-checked='false']"
-        )
-        for j in range(off.count()):
-            try:
-                off.nth(j).click()
-                toggled += 1
-                print(f"     ↳ 토글 {j+1}: ON")
-                time.sleep(0.2)
-            except Exception:
-                pass
+    # JS로 한 번에 체크되지 않은 체크박스를 모두 찾아서 클릭
+    toggled = page.evaluate("""() => {
+        let count = 0;
+        document.querySelectorAll('table tbody tr input[type="checkbox"]').forEach(cb => {
+            if (!cb.checked) { cb.click(); count++; }
+        });
+        // 토글 스위치 형태도 처리
+        if (count === 0) {
+            document.querySelectorAll(
+                'table tbody tr .toggle.off, ' +
+                'table tbody tr [class*="toggle"][class*="off"], ' +
+                'table tbody tr [class*="switch"][aria-checked="false"]'
+            ).forEach(el => { el.click(); count++; });
+        }
+        return count;
+    }""")
+    if toggled > 0:
+        print(f"     ↳ {toggled}개 항목 심사결과 파일 여부 ON")
     return toggled > 0
 
 
