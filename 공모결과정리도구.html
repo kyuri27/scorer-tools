@@ -754,11 +754,16 @@ function resetAll() {
   const btn = document.getElementById('analyzeBtn');
   if (btn) { btn.disabled = false; btn.innerHTML = '🚀 분석 시작'; }
 
-  // 세움터 데이터 초기화
-  window._seumterData = null;
+  // 공모 데이터 초기화
+  seumterData = null;
   window._currentData = null;
   document.getElementById('seumterJsonInput').value = '';
   document.getElementById('seumterStatus').innerHTML = '';
+  document.getElementById('manualCompetitionName').value = '';
+  document.getElementById('manualJudgesInput').value = '';
+  document.getElementById('manualAwardsInput').value = '';
+  document.getElementById('manualJudgesPreview').innerHTML = '';
+  document.getElementById('manualAwardsPreview').innerHTML = '';
   document.getElementById('manualNoticeDate').value = '';
   document.getElementById('manualAnnounceDate').value = '';
   const agencyEl = document.getElementById('manualAgency');
