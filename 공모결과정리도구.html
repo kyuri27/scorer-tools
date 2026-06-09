@@ -1870,12 +1870,8 @@ function buildAwardsTxtContent(data) {
     const t = a.awardTypePdf || a.awardTypeSeumter || a.awardType || '';
     typeCounts[t] = (typeCounts[t] || 0) + 1;
   });
-  return (data.awards || []).map(a => {
-    const raw = a.awardTypePdf || a.awardTypeSeumter || a.awardType || '';
-    const t = raw.replace(/\s+/g, '');
-    const showRank = typeCounts[raw] > 1;
-    const rankSuffix = showRank ? String(a.pdfRank || '') : '';
-    const label = a.num ? `${t}${rankSuffix}_${a.num}` : `${t}${rankSuffix}`;
+  return (data.awards || []).map((a, idx) => {
+    const label = buildAwardLabel(a, typeCounts, idx);
     // +로 구분된 합동 출품은 ,로 변환 → Python에서 여러 건축가로 분리 처리
     const office   = (a.office   || '').replace(/\+/g, ',');
     const designer = (a.designer || '').replace(/\+/g, ',');

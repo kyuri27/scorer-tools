@@ -1524,12 +1524,8 @@ function buildAwardsTxtContent(data) {
     const t = a.awardTypePdf || a.awardTypeSeumter || a.awardType || '';
     typeCounts[t] = (typeCounts[t] || 0) + 1;
   });
-  return (data.awards || []).map(a => {
-    const raw = a.awardTypePdf || a.awardTypeSeumter || a.awardType || '';
-    const t = raw.replace(/\s+/g, '');
-    const showRank = typeCounts[raw] > 1;
-    const rankSuffix = showRank ? String(a.pdfRank || '') : '';
-    const label = a.num ? `${t}${rankSuffix}_${a.num}` : `${t}${rankSuffix}`;
+  return (data.awards || []).map((a, idx) => {
+    const label = buildAwardLabel(a, typeCounts, idx);
     return [label, a.office || '', a.designer || ''].join('\t');
   }).join('\n');
 }
