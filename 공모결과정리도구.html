@@ -2224,6 +2224,11 @@ async function renderDownloads(data) {
   function normalizePrefix(prefix) {
     return prefix.replace(/\s*\d+\s*$/, '').trim() || prefix;
   }
+  // _ENG, _KOR 등 언어 구분자가 있으면 prefix에 포함 (삭제하지 않음)
+  function extractLangSuffix(nameNoExt) {
+    const m = nameNoExt.match(/_(ENG|KOR)(?:[_\s]*\d*)?$/i);
+    return m ? '_' + m[1].toUpperCase() : '';
+  }
   function groupFiles(fileArr, datePart, isNotice = false) {
     const groups = {};
     for (const f of fileArr) {
@@ -2237,6 +2242,7 @@ async function renderDownloads(data) {
         prefix = nameNoExt.includes('_') ? nameNoExt.split('_')[0] : nameNoExt;
       }
       prefix = normalizePrefix(prefix); // 끝 숫자 제거
+      prefix += extractLangSuffix(nameNoExt); // _ENG/_KOR 보존
       if (!groups[prefix]) groups[prefix] = { files: [], datePart };
       groups[prefix].files.push(f);
     }
