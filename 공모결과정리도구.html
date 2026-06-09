@@ -2206,7 +2206,7 @@ async function renderDownloads(data) {
   for (const g of Object.values(noticeGroups)) g.isNotice = true;
 
   // 같은 그룹 내 파일들은 파일명 알파벳 순으로 정렬
-  for (const g of Object.values(allGroups)) {
+  for (const g of Object.values({ ...noticeGroups, ...resultGroups })) {
     g.files.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
   }
 
