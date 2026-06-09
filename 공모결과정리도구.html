@@ -443,10 +443,18 @@ function cleanPersonName(name) {
   if (!name) return name;
   return name.replace(/\s+/g, '');
 }
+function normalizeJudgeType(type) {
+  if (!type) return '외부';
+  if (type.includes('예비')) return '예비';
+  return '외부'; // 본위원, 외부위원, 외부, 심사위원 등 모두 외부로
+}
 function cleanNamesInData(data) {
   if (!data) return data;
   if (data.judges_planned) {
-    data.judges_planned.forEach(j => { j.name = cleanPersonName(j.name); });
+    data.judges_planned.forEach(j => {
+      j.name = cleanPersonName(j.name);
+      j.type = normalizeJudgeType(j.type);
+    });
   }
   if (data.judges_attended) {
     data.judges_attended = data.judges_attended.map(n => cleanPersonName(n));
@@ -1401,7 +1409,7 @@ function parseJudgesText(text) {
 
   for (const line of lines) {
     // 형식 2: 탭 또는 쉼표 구분 (심사위원/예비위원[탭/,]이름[탭/,]소속)
-    const hasSep = line.includes('\t') || /^(외부|예비)\s*,/.test(line);
+    const hasSep = line.includes('\t') || /^(외부|본위원|예비)\s*,/.test(line);
     if (hasSep) {
       const parts = line.includes('\t')
         ? line.split('\t').map(p => p.trim())
@@ -1410,7 +1418,7 @@ function parseJudgesText(text) {
         const typeStr = parts[0];
         const name = parts[1];
         const org = parts[2] || '';
-        const type = typeStr.includes('예비') ? '예비' : '외부';
+        const type = (typeStr.includes('예비') || typeStr.includes('예비위원')) ? '예비' : '외부';
         if (name) judges.push({ type, name, org });
       }
       continue;
@@ -1420,14 +1428,14 @@ function parseJudgesText(text) {
     if (/예비.{0,6}심사위원|예비위원/.test(line) && !/[：:]/.test(line)) {
       currentType = '예비'; continue;
     }
-    if (/^(외부\s*)?심사위원/.test(line) && !/[：:]/.test(line)) {
+    if (/^(외부\s*)?심사위원|본위원/.test(line) && !/[：:]/.test(line)) {
       currentType = '외부'; continue;
     }
 
     // 형식 1: 콜론 구분 — "예비1 이름: 소속" 또는 "이름: 소속"
     let type = currentType;
     let processedLine = line;
-    const prefixMatch = line.match(/^예비\d*\s+/);
+    const prefixMatch = line.match(/^(예비위원|예비)\d*\s+/);
     if (prefixMatch) {
       type = '예비';
       processedLine = line.slice(prefixMatch[0].length);
