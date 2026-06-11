@@ -2157,7 +2157,7 @@ function buildZip(files) {
     const local = new Uint8Array(30 + name.length + size);
     const lv = new DataView(local.buffer);
     lv.setUint32(0, 0x04034b50, true); lv.setUint16(4, 20, true);
-    lv.setUint16(6, 0, true); lv.setUint16(8, 0, true);
+    lv.setUint16(6, 0x0800, true); lv.setUint16(8, 0, true); // 0x0800 = UTF-8 filename flag
     lv.setUint16(10, dt.time, true); lv.setUint16(12, dt.date, true);
     lv.setUint32(14, crc, true); lv.setUint32(18, size, true);
     lv.setUint32(22, size, true); lv.setUint16(26, name.length, true);
@@ -2168,7 +2168,7 @@ function buildZip(files) {
     const central = new Uint8Array(46 + name.length);
     const cv = new DataView(central.buffer);
     cv.setUint32(0, 0x02014b50, true); cv.setUint16(4, 20, true);
-    cv.setUint16(6, 20, true); cv.setUint16(8, 0, true);
+    cv.setUint16(6, 20, true); cv.setUint16(8, 0x0800, true); // 0x0800 = UTF-8 filename flag
     cv.setUint16(10, 0, true); cv.setUint16(12, dt.time, true);
     cv.setUint16(14, dt.date, true); cv.setUint32(16, crc, true);
     cv.setUint32(20, size, true); cv.setUint32(24, size, true);
