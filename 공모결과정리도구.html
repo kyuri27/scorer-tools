@@ -456,8 +456,12 @@ function cleanNamesInData(data) {
   if (data.chairperson) data.chairperson = cleanPersonName(data.chairperson);
   if (data.awards) {
     data.awards.forEach(a => {
-      a.designer = cleanPersonName(a.designer);
-      if (a.office) a.office = a.office.replace(/\[단독응모\]/g, '').trim();
+      if (a.office) {
+        a.office = a.office.replace(/\s*및\s*/g, '+').replace(/\[단독응모\]/g, '').trim();
+      }
+      if (a.designer) {
+        a.designer = cleanPersonName(a.designer.replace(/\s*및\s*/g, '+'));
+      }
     });
   }
   return data;
