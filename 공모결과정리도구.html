@@ -416,13 +416,8 @@ function applySeumterJSON() {
     const name = cleanCompetitionName(data.competitionName || '');
     const build = data.buildType ? `(${data.buildType})` : '';
     const judgeCount = (data.judges_planned || []).length;
-    // 공모명을 입력란에 자동으로 채워서 바로 수정 가능하게
-    const nameInput = document.getElementById('manualCompetitionName');
-    if (nameInput && !nameInput.value.trim()) {
-      nameInput.value = name + (build ? build : '');
-    }
     statusEl.innerHTML = `<div class="status-msg status-success">
-      ✅ 적용됨 — 심사위원 ${judgeCount}명 · 공모명을 아래에서 확인·수정하세요 👇
+      ✅ 적용됨 — <b>${name}${build}</b> · 심사위원 ${judgeCount}명
     </div>`;
   } catch (e) {
     document.getElementById('seumterStatus').innerHTML =
@@ -435,7 +430,6 @@ function clearSeumterJSON() {
   seumterData = null;
   document.getElementById('seumterJsonInput').value = '';
   document.getElementById('seumterStatus').innerHTML = '';
-  document.getElementById('manualCompetitionName').value = '';
 }
 
 // ───── 이름 정리 (띄어쓰기 제거) ─────
@@ -443,25 +437,20 @@ function cleanPersonName(name) {
   if (!name) return name;
   return name.replace(/\s+/g, '');
 }
-function normalizeJudgeType(type) {
-  if (!type) return '외부';
-  if (type.includes('예비')) return '예비';
-  return '외부'; // 본위원, 외부위원, 외부, 심사위원 등 모두 외부로
-}
 function cleanNamesInData(data) {
   if (!data) return data;
   if (data.judges_planned) {
-    data.judges_planned.forEach(j => {
-      j.name = cleanPersonName(j.name);
-      j.type = normalizeJudgeType(j.type);
-    });
+    data.judges_planned.forEach(j => { j.name = cleanPersonName(j.name); });
   }
   if (data.judges_attended) {
     data.judges_attended = data.judges_attended.map(n => cleanPersonName(n));
   }
   if (data.chairperson) data.chairperson = cleanPersonName(data.chairperson);
   if (data.awards) {
-    data.awards.forEach(a => { a.designer = cleanPersonName(a.designer); });
+    data.awards.forEach(a => {
+      a.designer = cleanPersonName(a.designer);
+      if (a.office) a.office = a.office.replace(/\[단독응모\]/g, '').trim();
+    });
   }
   return data;
 }
@@ -762,16 +751,11 @@ function resetAll() {
   const btn = document.getElementById('analyzeBtn');
   if (btn) { btn.disabled = false; btn.innerHTML = '🚀 분석 시작'; }
 
-  // 공모 데이터 초기화
-  seumterData = null;
+  // 세움터 데이터 초기화
+  window._seumterData = null;
   window._currentData = null;
   document.getElementById('seumterJsonInput').value = '';
   document.getElementById('seumterStatus').innerHTML = '';
-  document.getElementById('manualCompetitionName').value = '';
-  document.getElementById('manualJudgesInput').value = '';
-  document.getElementById('manualAwardsInput').value = '';
-  document.getElementById('manualJudgesPreview').innerHTML = '';
-  document.getElementById('manualAwardsPreview').innerHTML = '';
   document.getElementById('manualNoticeDate').value = '';
   document.getElementById('manualAnnounceDate').value = '';
   const agencyEl = document.getElementById('manualAgency');
@@ -781,10 +765,6 @@ function resetAll() {
   _awardsTxtHandle = null;
   window._judgeStatusOverrides = {};
   window._judgesData = [];
-  window._judgeCustomOrder = null;
-  window._awardLabelOverrides = {};
-  window._processedUploadFiles = [];
-  window._processedNoticeFiles = [];
 
   // 맨 위로 스크롤
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1412,7 +1392,7 @@ function parseJudgesText(text) {
 
   for (const line of lines) {
     // 형식 2: 탭 또는 쉼표 구분 (심사위원/예비위원[탭/,]이름[탭/,]소속)
-    const hasSep = line.includes('\t') || /^(외부(?:위원)?|본위원|예비(?:위원)?)\s*,/.test(line);
+    const hasSep = line.includes('\t') || /^(외부|예비)\s*,/.test(line);
     if (hasSep) {
       const parts = line.includes('\t')
         ? line.split('\t').map(p => p.trim())
@@ -1421,7 +1401,7 @@ function parseJudgesText(text) {
         const typeStr = parts[0];
         const name = parts[1];
         const org = parts[2] || '';
-        const type = (typeStr.includes('예비') || typeStr.includes('예비위원')) ? '예비' : '외부';
+        const type = typeStr.includes('예비') ? '예비' : '외부';
         if (name) judges.push({ type, name, org });
       }
       continue;
@@ -1431,14 +1411,14 @@ function parseJudgesText(text) {
     if (/예비.{0,6}심사위원|예비위원/.test(line) && !/[：:]/.test(line)) {
       currentType = '예비'; continue;
     }
-    if (/^(외부\s*)?심사위원|본위원/.test(line) && !/[：:]/.test(line)) {
+    if (/^(외부\s*)?심사위원/.test(line) && !/[：:]/.test(line)) {
       currentType = '외부'; continue;
     }
 
     // 형식 1: 콜론 구분 — "예비1 이름: 소속" 또는 "이름: 소속"
     let type = currentType;
     let processedLine = line;
-    const prefixMatch = line.match(/^(예비위원|예비)\d*\s+/);
+    const prefixMatch = line.match(/^예비\d*\s+/);
     if (prefixMatch) {
       type = '예비';
       processedLine = line.slice(prefixMatch[0].length);
@@ -1499,7 +1479,7 @@ function cleanCompetitionName(raw) {
   // 신축 외 공사 유형: 괄호로 이동
   const MODIFIERS = ['리모델링', '개축', '증축', '대수선', '보강', '재건축', '복원', '이전'];
   // 제거할 접미사 (긴 것 먼저 처리)
-  const SUFFIXES = ['설계공모', '제안공모', '현상공모', '지명공모', '설계경기', '건축설계용역 일반', '건축설계용역', '설계용역', '용역', '공모', '건립', '사업'];
+  const SUFFIXES = ['설계공모', '제안공모', '현상공모', '지명공모', '설계경기', '공모', '사업'];
 
   let s = raw.trim();
 
@@ -1551,57 +1531,6 @@ function toggleJudgeStatus(btn, name, originalStatus) {
   btn.innerHTML = judgeStatusPill(next) + (changed ? ' <span style="color:#f59e0b;font-size:11px;" title="수동 변경됨">✏️</span>' : '');
 }
 
-// ───── 수상작 정리명 수동 수정 ─────
-function editAwardLabel(td, idx, currentLabel) {
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.value = currentLabel;
-  input.style.cssText = 'font-size:13px;font-weight:600;padding:2px 6px;border:1px solid #2563eb;border-radius:4px;width:140px;';
-  td.innerHTML = '';
-  td.appendChild(input);
-  input.focus();
-  input.select();
-  const save = () => {
-    const val = input.value.trim();
-    if (val && val !== currentLabel) {
-      if (!window._awardLabelOverrides) window._awardLabelOverrides = {};
-      window._awardLabelOverrides[idx] = val;
-    } else if (!val) {
-      delete window._awardLabelOverrides[idx];
-    }
-    renderSummary(window._currentData);
-  };
-  input.addEventListener('blur', save);
-  input.addEventListener('keydown', e => {
-    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
-    if (e.key === 'Escape') { input.removeEventListener('blur', save); renderSummary(window._currentData); }
-  });
-}
-
-// ───── 심사위원 행 드래그 순서 변경 ─────
-let _dragJudgeIdx = null;
-function judgeRowDragStart(idx) {
-  _dragJudgeIdx = idx;
-}
-function judgeRowDragOver(e) {
-  e.preventDefault();
-  e.currentTarget.style.outline = '2px solid #2563eb';
-}
-function judgeRowDragLeave(e) {
-  e.currentTarget.style.outline = '';
-}
-function judgeRowDrop(e, targetIdx) {
-  e.preventDefault();
-  e.currentTarget.style.outline = '';
-  if (_dragJudgeIdx === null || _dragJudgeIdx === targetIdx) return;
-  const judges = window._judgesData;
-  const moved = judges.splice(_dragJudgeIdx, 1)[0];
-  judges.splice(targetIdx, 0, moved);
-  window._judgeCustomOrder = judges.map(j => j.name);
-  _dragJudgeIdx = null;
-  renderSummary(window._currentData);
-}
-
 // ───── 결과 렌더링 ─────
 function renderSummary(s) {
   const baseName = getCompetitionName(s) || s.competitionName || '';
@@ -1623,55 +1552,37 @@ function renderSummary(s) {
   // PDF 이름을 세움터 이름으로 정규화
   const normalizedAttended = normalizePdfNames(pdfAttended, seumterJudges);
 
-  const hasResultFiles = resultFiles.length > 0;
-  const judges = [];
-  const addedNames = new Set();
-
-  // 1. PDF에 나온 순서대로 먼저 추가
-  for (const n of normalizedAttended) {
-    const seumterJudge = seumterJudges.find(j => j.name === n.seumterName);
-    const base = seumterJudge ? { ...seumterJudge } : { type: '예비', name: n.seumterName, org: '' };
-    let status = '참석';
-    if (base.name === s.chairperson) status = '위원장';
-    judges.push({ ...base, type: base.type || '외부', status, pdfNameDiff: n.pdfName });
-    addedNames.add(n.seumterName);
-  }
-
-  // 2. PDF에 없는 세움터 심사위원을 세움터 순서대로 뒤에 추가
-  for (const j of seumterJudges) {
-    if (addedNames.has(j.name)) continue;
-    let status = pdfAttended.length > 0 && hasResultFiles ? '불참' : '참석';
+  // 세움터 이름 기준으로 참석 여부 결정
+  const judges = seumterJudges.map(j => {
+    const match = normalizedAttended.find(n => n.seumterName === j.name);
+    // 결과 파일 없이 공고 파일만 분석한 경우 참석 여부 판단 불가 → 기본 참석
+    const hasResultFiles = resultFiles.length > 0;
+    let status = match ? '참석' : (pdfAttended.length > 0 && hasResultFiles ? '불참' : '참석');
     if (j.name === s.chairperson) status = '위원장';
-    judges.push({ ...j, type: j.type || '외부', status, pdfNameDiff: null });
-    addedNames.add(j.name);
-  }
+    const pdfNameDiff = match && match.pdfName ? match.pdfName : null;
+    const type = j.type || '외부'; // type 비어있으면 외부로 기본값
+    return { ...j, type, status, pdfNameDiff };
+  });
 
-  // 예비위원은 외부위원 뒤로 (각 그룹 내 순서는 유지)
+  // PDF에서 추출됐지만 세움터에 없는 이름 (예비위원 대체 참석 등)
+  for (const n of normalizedAttended) {
+    if (!judges.find(j => j.name === n.seumterName)) {
+      judges.push({ type: '예비', name: n.seumterName, org: '', status: '참석', pdfNameDiff: n.pdfName });
+    }
+  }
   judges.sort((a, b) => {
     const aR = (a.type || '').includes('예비') ? 1 : 0;
     const bR = (b.type || '').includes('예비') ? 1 : 0;
     return aR - bR;
   });
 
-  // 수동으로 저장된 순서가 있으면 적용
-  if (window._judgeCustomOrder && window._judgeCustomOrder.length > 0) {
-    judges.sort((a, b) => {
-      const ai = window._judgeCustomOrder.indexOf(a.name);
-      const bi = window._judgeCustomOrder.indexOf(b.name);
-      if (ai === -1 && bi === -1) return 0;
-      if (ai === -1) return 1;
-      if (bi === -1) return -1;
-      return ai - bi;
-    });
-  }
-
   // 심사위원 상태 전역 저장 (수동 변경용)
   window._judgesData = judges;
   if (!window._judgeStatusOverrides) window._judgeStatusOverrides = {};
 
   if (judges.length) {
-    html += `<h4>👥 심사위원 참석 현황 <span style="font-size:11px;font-weight:400;color:#6b7280;">— 상태 클릭 변경 · 행 드래그로 순서 변경</span></h4>`;
-    html += `<table class="result-table" id="judgesTable"><thead><tr><th style="width:24px;"></th><th>구분</th><th>성명</th><th>소속</th><th>상태</th></tr></thead><tbody>`;
+    html += `<h4>👥 심사위원 참석 현황 <span style="font-size:11px;font-weight:400;color:#6b7280;">— 상태 클릭해서 수동 변경 가능</span></h4>`;
+    html += `<table class="result-table"><thead><tr><th>구분</th><th>성명</th><th>소속</th><th>상태</th></tr></thead><tbody>`;
     judges.forEach((j, idx) => {
       const curStatus = window._judgeStatusOverrides[j.name] ?? j.status;
       const changed = (curStatus !== j.status);
@@ -1682,13 +1593,7 @@ function renderSummary(s) {
       const typePill = j.type === '예비'
         ? `<span class="pill pill-reserve">예비</span>`
         : `<span class="pill" style="background:#dbeafe;color:#1e40af;">외부</span>`;
-      html += `<tr draggable="true"
-        ondragstart="judgeRowDragStart(${idx})"
-        ondragover="judgeRowDragOver(event)"
-        ondragleave="judgeRowDragLeave(event)"
-        ondrop="judgeRowDrop(event, ${idx})"
-        style="cursor:default;">
-        <td style="color:#9ca3af;cursor:grab;font-size:16px;text-align:center;padding:4px 6px;" title="드래그해서 순서 변경">⠿</td>
+      html += `<tr>
         <td>${typePill}</td>
         <td>${nameDisplay}</td>
         <td>${j.org || '-'}</td>
@@ -1737,25 +1642,22 @@ function renderSummary(s) {
       const t = a.awardTypePdf || a.awardTypeSeumter || a.awardType || '';
       pdfTypeCounts[t] = (pdfTypeCounts[t] || 0) + 1;
     });
-    if (!window._awardLabelOverrides) window._awardLabelOverrides = {};
-    awardsToRender.forEach((a, aIdx) => {
+    awardsToRender.forEach(a => {
       const imgTag = a.imgBase64
         ? `<img src="data:${a.imgMime || 'image/jpeg'};base64,${a.imgBase64}" style="width:72px;height:54px;object-fit:cover;border-radius:4px;">`
         : (a.imgSrc ? `<img src="${a.imgSrc}" style="width:72px;height:54px;object-fit:cover;border-radius:4px;">` : '-');
       const imgCell = hasImages ? `<td>${imgTag}</td>` : '';
-      const seumterType = a.awardTypeSeumter || a.awardType;
-      const rawLabelType = a.awardTypePdf || a.awardTypeSeumter || a.awardType || '';
+      const seumterType = a.awardTypeSeumter || a.awardType; // 구분 컬럼: 세움터 기준
+      const rawLabelType = a.awardTypePdf || a.awardTypeSeumter || a.awardType || ''; // 정리명: PDF 타입 우선
       const labelType = rawLabelType.replace(/\s+/g, '');
-      const showRank = pdfTypeCounts[rawLabelType] > 1;
+      const showRank = pdfTypeCounts[rawLabelType] > 1;      // PDF 타입 기준으로 등수 표시 여부
       const rankSuffix = showRank ? String(a.pdfRank || '') : '';
-      const autoLabel = a.num ? `${labelType}${rankSuffix}_${a.num}` : `${labelType}${rankSuffix}`;
-      const overrideLabel = window._awardLabelOverrides[aIdx];
-      const displayLabel = overrideLabel ?? autoLabel;
-      const isOverridden = !!overrideLabel;
-      const labelCell = `<td style="cursor:pointer;" title="클릭해서 정리명 수정" onclick="editAwardLabel(this, ${aIdx}, '${displayLabel.replace(/'/g,"\\'")}')">
-        <b style="color:${isOverridden ? '#2563eb' : 'inherit'};">${displayLabel}</b>${isOverridden ? ' <span style="font-size:10px;color:#2563eb;">✏️</span>' : ''}
-      </td>`;
-      html += `<tr>${imgCell}<td>${seumterType}</td>${labelCell}<td>${a.office || '-'}</td><td>${a.designer || '-'}</td></tr>`;
+      const label = a.num
+        ? `${labelType}${rankSuffix}_${a.num}`
+        : (manualAwards
+            ? `${labelType}${rankSuffix}`   // 수동 입력: 참가번호 없어도 경고 없이 표시
+            : `<span style="color:#d97706;" title="참가번호 없음">${labelType}${rankSuffix}</span>`);
+      html += `<tr>${imgCell}<td>${seumterType}</td><td><b>${label}</b></td><td>${a.office || '-'}</td><td>${a.designer || '-'}</td></tr>`;
     });
     html += `</tbody></table>`;
 
@@ -1784,9 +1686,7 @@ async function downloadAwardsTxt() {
     const t = a.awardTypePdf || a.awardTypeSeumter || a.awardType || '';
     typeCounts[t] = (typeCounts[t] || 0) + 1;
   });
-  function getLabel(a, idx) {
-    const override = (window._awardLabelOverrides || {})[idx];
-    if (override) return override;
+  function getLabel(a) {
     const raw = a.awardTypePdf || a.awardTypeSeumter || a.awardType || '';
     const t = raw.replace(/\s+/g, '');
     const showRank = typeCounts[raw] > 1;
@@ -1794,8 +1694,8 @@ async function downloadAwardsTxt() {
     return a.num ? `${t}${rankSuffix}_${a.num}` : `${t}${rankSuffix}`;
   }
 
-  const lines = data.awards.map((a, i) =>
-    [getLabel(a, i), (a.office || '').replace(/\+/g, ','), (a.designer || '').replace(/\+/g, ',')].join('\t')
+  const lines = data.awards.map(a =>
+    [getLabel(a), (a.office || '').replace(/\+/g, ','), (a.designer || '').replace(/\+/g, ',')].join('\t')
   );
   const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/plain;charset=utf-8' });
 
@@ -1872,8 +1772,12 @@ function buildAwardsTxtContent(data) {
     const t = a.awardTypePdf || a.awardTypeSeumter || a.awardType || '';
     typeCounts[t] = (typeCounts[t] || 0) + 1;
   });
-  return (data.awards || []).map((a, idx) => {
-    const label = buildAwardLabel(a, typeCounts, idx);
+  return (data.awards || []).map(a => {
+    const raw = a.awardTypePdf || a.awardTypeSeumter || a.awardType || '';
+    const t = raw.replace(/\s+/g, '');
+    const showRank = typeCounts[raw] > 1;
+    const rankSuffix = showRank ? String(a.pdfRank || '') : '';
+    const label = a.num ? `${t}${rankSuffix}_${a.num}` : `${t}${rankSuffix}`;
     // +로 구분된 합동 출품은 ,로 변환 → Python에서 여러 건축가로 분리 처리
     const office   = (a.office   || '').replace(/\+/g, ',');
     const designer = (a.designer || '').replace(/\+/g, ',');
@@ -1882,9 +1786,7 @@ function buildAwardsTxtContent(data) {
 }
 
 // 수상작 라벨 생성 (이미지 파일명용) — award 객체 하나 받아서 라벨 문자열 반환
-function buildAwardLabel(award, typeCounts, idx) {
-  const override = (window._awardLabelOverrides || {})[idx];
-  if (override !== undefined) return override;
+function buildAwardLabel(award, typeCounts) {
   const raw = award.awardTypePdf || award.awardTypeSeumter || award.awardType || '';
   const t = raw.replace(/\s+/g, '');
   const showRank = typeCounts[raw] > 1;
@@ -1911,7 +1813,7 @@ async function runAwardInput() {
 
   // 이미지 수집 (세움터에서 가져온 이미지 — imgBase64 또는 imgSrc)
   const images = [];
-  for (const [aIdx, a] of data.awards.entries()) {
+  for (const a of data.awards) {
     let base64 = null, mime = 'image/jpeg';
 
     if (a.imgBase64) {
@@ -1930,7 +1832,7 @@ async function runAwardInput() {
     }
 
     if (base64) {
-      const label = buildAwardLabel(a, typeCounts, aIdx);
+      const label = buildAwardLabel(a, typeCounts);
       const office = (a.office || '').replace(/\(주\)|㈜|\(株\)/gi, '').replace(/[\\/:*?"<>|]/g, '').trim();
       const ext = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg';
       const filename = office ? `${label}_${office}.${ext}` : `${label}.${ext}`;
@@ -1971,7 +1873,7 @@ async function runAwardInput() {
           if (matched) {
             const ext = matched.filename.split('.').pop().toLowerCase();
             const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-            const label = buildAwardLabel(a, typeCounts, data.awards.indexOf(a));
+            const label = buildAwardLabel(a, typeCounts);
             const office = (a.office || '').replace(/\(주\)|㈜|\(株\)/gi, '').replace(/[\\/:*?"<>|]/g, '').trim();
             const filename = office ? `${label}_${office}.${ext}` : `${label}.${ext}`;
             images.push({ filename, data: matched.data, mime });
@@ -1985,7 +1887,7 @@ async function runAwardInput() {
             if (!a) return;
             const ext = f.filename.split('.').pop().toLowerCase();
             const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-            const label = buildAwardLabel(a, typeCounts, i);
+            const label = buildAwardLabel(a, typeCounts);
             const office = (a.office || '').replace(/\(주\)|㈜|\(株\)/gi, '').replace(/[\\/:*?"<>|]/g, '').trim();
             const filename = office ? `${label}_${office}.${ext}` : `${label}.${ext}`;
             images.push({ filename, data: f.data, mime });
@@ -2157,7 +2059,7 @@ function buildZip(files) {
     const local = new Uint8Array(30 + name.length + size);
     const lv = new DataView(local.buffer);
     lv.setUint32(0, 0x04034b50, true); lv.setUint16(4, 20, true);
-    lv.setUint16(6, 0x0800, true); lv.setUint16(8, 0, true); // 0x0800 = UTF-8 filename flag
+    lv.setUint16(6, 0, true); lv.setUint16(8, 0, true);
     lv.setUint16(10, dt.time, true); lv.setUint16(12, dt.date, true);
     lv.setUint32(14, crc, true); lv.setUint32(18, size, true);
     lv.setUint32(22, size, true); lv.setUint16(26, name.length, true);
@@ -2168,7 +2070,7 @@ function buildZip(files) {
     const central = new Uint8Array(46 + name.length);
     const cv = new DataView(central.buffer);
     cv.setUint32(0, 0x02014b50, true); cv.setUint16(4, 20, true);
-    cv.setUint16(6, 20, true); cv.setUint16(8, 0x0800, true); // 0x0800 = UTF-8 filename flag
+    cv.setUint16(6, 20, true); cv.setUint16(8, 0, true);
     cv.setUint16(10, 0, true); cv.setUint16(12, dt.time, true);
     cv.setUint16(14, dt.date, true); cv.setUint32(16, crc, true);
     cv.setUint32(20, size, true); cv.setUint32(24, size, true);
@@ -2215,7 +2117,9 @@ function crc32(data) {
 
 function formatDateForFile(dateStr) {
   if (!dateStr) return '';
-  const [y, m, d] = dateStr.split('-');
+  const datePart = dateStr.split(' ')[0].split('T')[0];
+  const [y, m, d] = datePart.split('-');
+  if (!y || !m || !d) return '';
   return `${y.slice(2)}${m}${d}`;
 }
 
@@ -2246,27 +2150,8 @@ function findFileByName(fileName) {
   return bestScore >= 0.25 ? best : null;
 }
 
-function extractRegionPrefix(location) {
-  if (!location) return '';
-  const REGIONS = [
-    ['서울특별시', '서울'], ['부산광역시', '부산'], ['대구광역시', '대구'],
-    ['인천광역시', '인천'], ['광주광역시', '광주'], ['대전광역시', '대전'],
-    ['울산광역시', '울산'], ['세종특별자치시', '세종'],
-    ['경기도', '경기'], ['강원특별자치도', '강원'], ['강원도', '강원'],
-    ['충청북도', '충북'], ['충청남도', '충남'],
-    ['전북특별자치도', '전북'], ['전라북도', '전북'], ['전라남도', '전남'],
-    ['경상북도', '경북'], ['경상남도', '경남'], ['제주특별자치도', '제주'],
-  ];
-  for (const [full, abbr] of REGIONS) {
-    if (location.startsWith(full) || location.includes(full)) return abbr;
-  }
-  return '';
-}
-
 async function renderDownloads(data) {
-  const regionPrefix = extractRegionPrefix(data.location || '');
-  const baseName = cleanCompetitionName(getCompetitionName(data) || '');
-  const compName = regionPrefix ? `${regionPrefix} ${baseName}` : baseName;
+  const compName = cleanCompetitionName(getCompetitionName(data) || '');
   const noticeDateStr = formatDateForFile(data.noticeDate);
   const noticeDatePart = noticeDateStr ? `_${noticeDateStr}` : '';
   const resultDateStr = formatDateForFile(data.announceDate);
@@ -2295,11 +2180,6 @@ async function renderDownloads(data) {
   function normalizePrefix(prefix) {
     return prefix.replace(/\s*\d+\s*$/, '').trim() || prefix;
   }
-  // _ENG, _KOR 등 언어 구분자가 있으면 prefix에 포함 (삭제하지 않음)
-  function extractLangSuffix(nameNoExt) {
-    const m = nameNoExt.match(/_(ENG|KOR)(?:[_\s]*\d*)?$/i);
-    return m ? '_' + m[1].toUpperCase() : '';
-  }
   function groupFiles(fileArr, datePart, isNotice = false) {
     const groups = {};
     for (const f of fileArr) {
@@ -2313,20 +2193,20 @@ async function renderDownloads(data) {
         prefix = nameNoExt.includes('_') ? nameNoExt.split('_')[0] : nameNoExt;
       }
       prefix = normalizePrefix(prefix); // 끝 숫자 제거
-      prefix += extractLangSuffix(nameNoExt); // _ENG/_KOR 보존
       if (!groups[prefix]) groups[prefix] = { files: [], datePart };
       groups[prefix].files.push(f);
     }
     return groups;
   }
 
-  const noticeGroups = groupFiles(noticeFiles, noticeDatePart, true);  // 공고 파일: 키워드 추출 (합본 안 함)
-  const resultGroups = groupFiles(resultFiles, resultDatePart, false); // 결과 파일: 같은 이름끼리 합본
+  const noticeGroups = groupFiles(noticeFiles, noticeDatePart, true);  // 공고 파일: 키워드 추출
+  const resultGroups = groupFiles(resultFiles, resultDatePart, false); // 결과 파일: 기존 방식
   // 공고 파일 그룹에 isNotice 표시
   for (const g of Object.values(noticeGroups)) g.isNotice = true;
+  const allGroups = { ...noticeGroups, ...resultGroups };
 
   // 같은 그룹 내 파일들은 파일명 알파벳 순으로 정렬
-  for (const g of Object.values({ ...noticeGroups, ...resultGroups })) {
+  for (const g of Object.values(allGroups)) {
     g.files.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
   }
 
@@ -2343,8 +2223,8 @@ async function renderDownloads(data) {
     return btoa(bin);
   }
 
-  // 결과 파일 PDF: 같은 접두사끼리 합본
-  for (const [prefix, g] of Object.entries(resultGroups)) {
+  // PDF: 같은 접두사끼리 합본
+  for (const [prefix, g] of Object.entries(allGroups)) {
     const pdfFiles = g.files.filter(f => f.type === 'pdf');
     if (pdfFiles.length === 0) continue;
     try {
@@ -2359,26 +2239,11 @@ async function renderDownloads(data) {
       const filename = `${prefix}_${compName}${g.datePart}.pdf`;
       const blob = new Blob([bytes], { type: 'application/pdf' });
       results.push({ filename, url: URL.createObjectURL(blob), pageCount: newDoc.getPageCount(), fileCount: pdfFiles.length });
-      window._processedUploadFiles.push({ filename, data: toBase64(bytes) });
+      const fileObj = { filename, data: toBase64(bytes) };
+      window._processedUploadFiles.push(fileObj);
+      if (g.isNotice) window._processedNoticeFiles.push(fileObj);
     } catch (e) {
       warnings.push(`"${prefix}" 처리 실패: ${e.message}`);
-    }
-  }
-
-  // 공고 파일 PDF: 합본 없이 개별 이름 변경
-  for (const [prefix, g] of Object.entries(noticeGroups)) {
-    for (const f of g.files.filter(f => f.type === 'pdf')) {
-      try {
-        const bytes = new Uint8Array(f.arrayBuffer);
-        const filename = `${prefix}_${compName}${noticeDatePart}.pdf`;
-        const blob = new Blob([bytes], { type: 'application/pdf' });
-        const fileObj = { filename, data: toBase64(bytes) };
-        results.push({ filename, url: URL.createObjectURL(blob), pageCount: f.pageCount, fileCount: 1 });
-        window._processedUploadFiles.push(fileObj);
-        window._processedNoticeFiles.push(fileObj);
-      } catch (e) {
-        warnings.push(`"${f.name}" 처리 실패: ${e.message}`);
-      }
     }
   }
 
@@ -2470,8 +2335,6 @@ async function renderDownloads(data) {
     area.appendChild(w);
   }
 
-  window._downloadResults = results;
-
   if (results.length === 0) {
     area.innerHTML += '<div class="status-msg status-warning">생성된 PDF가 없습니다.</div>';
     document.getElementById('downloadCard').style.display = 'block';
@@ -2481,6 +2344,8 @@ async function renderDownloads(data) {
 
   const grid = document.createElement('div');
   grid.className = 'download-grid';
+  window._downloadResults = results;  // 전역 저장 (삭제용)
+
   results.forEach(r => {
     const item = document.createElement('div');
     item.className = 'download-item';
@@ -2502,7 +2367,7 @@ async function renderDownloads(data) {
     allBtn.disabled = true;
     allBtn.textContent = '⏳ 압축 중...';
     try {
-      const zipFiles = await Promise.all((window._downloadResults || []).map(async r => {
+      const zipFiles = await Promise.all(window._downloadResults.map(async r => {
         const resp = await fetch(r.url);
         const buf = await resp.arrayBuffer();
         return { name: r.filename, data: new Uint8Array(buf) };
