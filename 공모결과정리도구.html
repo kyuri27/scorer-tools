@@ -1729,16 +1729,8 @@ async function downloadAwardsTxt() {
     const t = a.awardTypePdf || a.awardTypeSeumter || a.awardType || '';
     typeCounts[t] = (typeCounts[t] || 0) + 1;
   });
-  function getLabel(a) {
-    const raw = a.awardTypePdf || a.awardTypeSeumter || a.awardType || '';
-    const t = raw.replace(/\s+/g, '');
-    const showRank = typeCounts[raw] > 1;
-    const rankSuffix = showRank ? String(a.pdfRank || '') : '';
-    return a.num ? `${t}${rankSuffix}_${a.num}` : `${t}${rankSuffix}`;
-  }
-
-  const lines = data.awards.map(a =>
-    [getLabel(a), (a.office || '').replace(/\+/g, ','), (a.designer || '').replace(/\+/g, ',')].join('\t')
+  const lines = data.awards.map((a, idx) =>
+    [buildAwardLabel(a, typeCounts, idx), (a.office || '').replace(/\+/g, ','), (a.designer || '').replace(/\+/g, ',')].join('\t')
   );
   const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/plain;charset=utf-8' });
 
@@ -1809,32 +1801,31 @@ async function downloadJudgesTxt() {
 // ───── 입상작 자동 입력 연동 (로컬 HTTP 서버 방식) ─────
 const AWARD_INPUT_PORT = 8765;
 
+// 수상작 라벨 생성 — _awardLabelOverrides 우선, 없으면 자동 생성
+function buildAwardLabel(award, typeCounts, idx) {
+  if (idx !== undefined && window._awardLabelOverrides && window._awardLabelOverrides[idx] !== undefined) {
+    return window._awardLabelOverrides[idx];
+  }
+  const raw = award.awardTypePdf || award.awardTypeSeumter || award.awardType || '';
+  const t = raw.replace(/\s+/g, '');
+  const showRank = typeCounts[raw] > 1;
+  const rankSuffix = showRank ? String(award.pdfRank || '') : '';
+  return award.num ? `${t}${rankSuffix}_${award.num}` : `${t}${rankSuffix}`;
+}
+
 function buildAwardsTxtContent(data) {
   const typeCounts = {};
   (data.awards || []).forEach(a => {
     const t = a.awardTypePdf || a.awardTypeSeumter || a.awardType || '';
     typeCounts[t] = (typeCounts[t] || 0) + 1;
   });
-  return (data.awards || []).map(a => {
-    const raw = a.awardTypePdf || a.awardTypeSeumter || a.awardType || '';
-    const t = raw.replace(/\s+/g, '');
-    const showRank = typeCounts[raw] > 1;
-    const rankSuffix = showRank ? String(a.pdfRank || '') : '';
-    const label = a.num ? `${t}${rankSuffix}_${a.num}` : `${t}${rankSuffix}`;
+  return (data.awards || []).map((a, idx) => {
+    const label = buildAwardLabel(a, typeCounts, idx);
     // +로 구분된 합동 출품은 ,로 변환 → Python에서 여러 건축가로 분리 처리
     const office   = (a.office   || '').replace(/\+/g, ',');
     const designer = (a.designer || '').replace(/\+/g, ',');
     return [label, office, designer].join('\t');
   }).join('\n');
-}
-
-// 수상작 라벨 생성 (이미지 파일명용) — award 객체 하나 받아서 라벨 문자열 반환
-function buildAwardLabel(award, typeCounts) {
-  const raw = award.awardTypePdf || award.awardTypeSeumter || award.awardType || '';
-  const t = raw.replace(/\s+/g, '');
-  const showRank = typeCounts[raw] > 1;
-  const rankSuffix = showRank ? String(award.pdfRank || '') : '';
-  return award.num ? `${t}${rankSuffix}_${award.num}` : `${t}${rankSuffix}`;
 }
 
 async function runAwardInput() {
@@ -1856,7 +1847,8 @@ async function runAwardInput() {
 
   // 이미지 수집 (세움터에서 가져온 이미지 — imgBase64 또는 imgSrc)
   const images = [];
-  for (const a of data.awards) {
+  for (let aIdx = 0; aIdx < data.awards.length; aIdx++) {
+    const a = data.awards[aIdx];
     let base64 = null, mime = 'image/jpeg';
 
     if (a.imgBase64) {
@@ -1875,7 +1867,7 @@ async function runAwardInput() {
     }
 
     if (base64) {
-      const label = buildAwardLabel(a, typeCounts);
+      const label = buildAwardLabel(a, typeCounts, aIdx);
       const office = (a.office || '').replace(/\(주\)|㈜|\(株\)/gi, '').replace(/[\\/:*?"<>|]/g, '').trim();
       const ext = mime.includes('png') ? 'png' : mime.includes('webp') ? 'webp' : 'jpg';
       const filename = office ? `${label}_${office}.${ext}` : `${label}.${ext}`;
@@ -1908,7 +1900,7 @@ async function runAwardInput() {
       if (images.length === 0) {
         // 1차: 파일명이 수상 구분명으로 시작하는 경우 매핑 (예: 당선작_사무소명.jpg)
         const usedFiles = new Set();
-        for (const a of data.awards) {
+        data.awards.forEach((a, aIdx) => {
           const awardType = a.awardTypePdf || a.awardTypeSeumter || a.awardType || '';
           const matched = imgFilesInUpload.find(f => !usedFiles.has(f) && (
             f.filename.startsWith(awardType + '_') || f.filename.startsWith(awardType + '.')
@@ -1916,13 +1908,13 @@ async function runAwardInput() {
           if (matched) {
             const ext = matched.filename.split('.').pop().toLowerCase();
             const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-            const label = buildAwardLabel(a, typeCounts);
+            const label = buildAwardLabel(a, typeCounts, aIdx);
             const office = (a.office || '').replace(/\(주\)|㈜|\(株\)/gi, '').replace(/[\\/:*?"<>|]/g, '').trim();
             const filename = office ? `${label}_${office}.${ext}` : `${label}.${ext}`;
             images.push({ filename, data: matched.data, mime });
             usedFiles.add(matched);
           }
-        }
+        });
         // 2차: 이름 매핑이 전혀 안 된 경우에만 순서대로 매핑
         if (images.length === 0) {
           imgFilesInUpload.forEach((f, i) => {
@@ -1930,7 +1922,7 @@ async function runAwardInput() {
             if (!a) return;
             const ext = f.filename.split('.').pop().toLowerCase();
             const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
-            const label = buildAwardLabel(a, typeCounts);
+            const label = buildAwardLabel(a, typeCounts, i);
             const office = (a.office || '').replace(/\(주\)|㈜|\(株\)/gi, '').replace(/[\\/:*?"<>|]/g, '').trim();
             const filename = office ? `${label}_${office}.${ext}` : `${label}.${ext}`;
             images.push({ filename, data: f.data, mime });
