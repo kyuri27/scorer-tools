@@ -549,10 +549,12 @@
     const urlsHTML = t.description_urls.map(url => {
       const scorerId = extractScorerId(url);
       return `
-      <div class="url-row">
-        ${scorerId ? `<span class="scorer-id"><span class="scorer-id-label">ID</span>${scorerId}</span>` : ''}
-        <span class="url-text">${url}</span>
-        <button class="btn-open" onclick="window.open('${escapeJs(url)}','_blank')">열기</button>
+      <div style="margin-bottom:6px;">
+        ${scorerId ? `<div style="margin-bottom:4px;"><span class="scorer-id"><span class="scorer-id-label">ID</span>${scorerId}</span></div>` : ''}
+        <div class="url-row">
+          <span class="url-text">${url}</span>
+          <button class="btn-open" onclick="window.open('${escapeJs(url)}','_blank')">열기</button>
+        </div>
       </div>`;
     }).join('') || '<p style="font-size:.8rem;color:#ccc;">description에 URL이 없습니다.</p>';
 
