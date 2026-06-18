@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>아사나 태스크</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', sans-serif; background: #f5f5f5; color: #222; }
+
+    header {
+      background: #3d5a99;
+      color: white;
+      padding: 20px 32px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    header h1 { font-size: 1.3rem; font-weight: 600; }
+
+    .container { max-width: 900px; margin: 32px auto; padding: 0 16px; }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.08);
+      margin-bottom: 20px;
+    }
+
+    label { font-size: .85rem; font-weight: 600; color: #555; display: block; margin-bottom: 6px; }
+
+    input[type=text], input[type=password] {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1.5px solid #ddd;
+      border-radius: 8px;
+      font-size: .95rem;
+      outline: none;
+      transition: border .2s;
+    }
+    input:focus { border-color: #3d5a99; }
+
+    button {
+      padding: 10px 22px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: .9rem;
+      font-weight: 600;
+      transition: opacity .2s;
+    }
+    button:hover { opacity: .85; }
+    button:disabled { opacity: .4; cursor: not-allowed; }
+
+    .btn-primary { background: #3d5a99; color: white; }
+    .btn-open    { background: #eee; color: #333; font-size: .82rem; padding: 7px 14px; }
+    .btn-done    { background: #eee; color: #888; font-size: .8rem; padding: 5px 12px; border-radius: 20px; }
+    .btn-done.completed { background: #4caf50; color: white; }
+
+    .tabs {
+      display: flex;
+      gap: 4px;
+      background: white;
+      border-radius: 12px;
+      padding: 6px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.08);
+      margin-bottom: 20px;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 9px 0;
+      border-radius: 8px;
+      background: transparent;
+      color: #888;
+      font-size: .88rem;
+      font-weight: 600;
+      transition: background .15s, color .15s;
+    }
+    .tab-btn:hover { background: #f0f4ff; color: #3d5a99; opacity: 1; }
+    .tab-btn.active { background: #3d5a99; color: white; }
+    .tab-btn.incomplete-tab.active { background: #e84f4f; }
+    .tab-btn.done-tab.active { background: #4caf50; }
+    .tab-btn .count {
+      display: inline-block;
+      background: rgba(255,255,255,.25);
+      color: inherit;
+      font-size: .72rem;
+      border-radius: 10px;
+      padding: 1px 7px;
+      margin-left: 5px;
+    }
+    .tab-btn:not(.active) .count { background: #eee; color: #999; }
+    .tab-btn.incomplete-tab:not(.active) .count { background: #fde8e8; color: #e84f4f; }
+    .tab-btn.done-tab:not(.active) .count { background: #e8f5e9; color: #4caf50; }
+
+    .task-list { display: flex; flex-direction: column; gap: 14px; }
+
+    .task-card {
+      border: 1.5px solid #e8e8e8;
+      border-radius: 10px;
+      padding: 18px;
+      background: #fafafa;
+      transition: opacity .2s;
+    }
+    .task-card.completed { opacity: .55; background: #f5f5f5; }
+
+    .task-header { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+    .task-name   { font-weight: 600; font-size: 1rem; flex: 1; }
+    .task-name.completed { text-decoration: line-through; color: #aaa; }
+    .task-date   { font-size: .78rem; color: #888; }
+
+    .day-badge {
+      font-size: .72rem;
+      border-radius: 4px;
+      padding: 2px 8px;
+      white-space: nowrap;
+    }
+    .day-badge.today    { background: #3d5a99; color: white; }
+    .day-badge.tomorrow { background: #5b8dee; color: white; }
+    .day-badge.after    { background: #a0b4d6; color: white; }
+    .day-badge.past     { background: #ccc; color: white; }
+
+    /* 스코어러 ID 배지 */
+    .scorer-id {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: #fff3e0;
+      border: 1px solid #ffb74d;
+      border-radius: 6px;
+      padding: 3px 10px;
+      font-size: .8rem;
+      font-weight: 700;
+      color: #e65100;
+    }
+    .scorer-id-label { font-weight: 400; color: #aaa; font-size: .72rem; }
+
+    .url-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+      flex-wrap: wrap;
+    }
+    .url-text {
+      font-size: .8rem;
+      color: #3d5a99;
+      word-break: break-all;
+      flex: 1;
+    }
+
+    .memo-row {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px solid #eee;
+    }
+    .memo-input {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1.5px solid #eee;
+      border-radius: 8px;
+      font-size: .82rem;
+      font-family: inherit;
+      resize: vertical;
+      min-height: 56px;
+      outline: none;
+      transition: border .2s;
+      background: white;
+    }
+    .memo-input:focus { border-color: #3d5a99; }
+    .memo-input::placeholder { color: #ccc; }
+
+    .spinner {
+      display: inline-block;
+      width: 14px; height: 14px;
+      border: 2px solid #ccc;
+      border-top-color: #3d5a99;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .empty { text-align: center; color: #aaa; padding: 40px 0; font-size: .95rem; }
+    .saved-token-hint { font-size: .75rem; color: #4caf50; margin-top: 6px; }
+    .error-msg { font-size: .85rem; color: #e84f4f; margin-top: 8px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+    <circle cx="12" cy="6" r="3" fill="white"/>
+    <circle cx="5" cy="18" r="3" fill="white"/>
+    <circle cx="19" cy="18" r="3" fill="white"/>
+  </svg>
+  <h1>아사나 태스크</h1>
+</header>
+
+<div class="container">
+
+  <div class="card" id="tokenCard">
+    <label>Asana Personal Access Token</label>
+    <div style="display:flex;gap:10px;margin-top:4px;">
+      <input type="password" id="tokenInput" placeholder="1/xxxxxxxxxxxxxxxx..." />
+      <button class="btn-primary" onclick="loadTasks()" id="loadBtn">불러오기</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap;">
+      <label style="margin:0;font-size:.82rem;color:#888;white-space:nowrap;">기간</label>
+      <input type="date" id="dateFrom" style="padding:6px 10px;font-size:.82rem;width:auto;" />
+      <span style="color:#aaa;font-size:.85rem;">~</span>
+      <input type="date" id="dateTo" style="padding:6px 10px;font-size:.82rem;width:auto;" />
+      <button onclick="setPreset(0,0)"  style="padding:5px 10px;font-size:.75rem;background:#f0f4ff;color:#3d5a99;border-radius:6px;border:1px solid #d0d8f0;">오늘</button>
+      <button onclick="setPreset(0,2)"  style="padding:5px 10px;font-size:.75rem;background:#f0f4ff;color:#3d5a99;border-radius:6px;border:1px solid #d0d8f0;">오늘~모레</button>
+      <button onclick="setPreset(0,6)"  style="padding:5px 10px;font-size:.75rem;background:#f0f4ff;color:#3d5a99;border-radius:6px;border:1px solid #d0d8f0;">1주일</button>
+      <button onclick="setPreset(0,13)" style="padding:5px 10px;font-size:.75rem;background:#f0f4ff;color:#3d5a99;border-radius:6px;border:1px solid #d0d8f0;">2주일</button>
+    </div>
+    <p id="savedHint" class="saved-token-hint" style="display:none;">✅ 저장된 토큰이 자동으로 입력됐어요.</p>
+    <p id="errorMsg" class="error-msg" style="display:none;"></p>
+    <p style="font-size:.75rem;color:#aaa;margin-top:6px;">
+      발급: Asana → 내 프로필 → 설정 → 앱 → 개인 액세스 토큰 &nbsp;|&nbsp;
+      <a href="#" onclick="clearToken()" style="color:#ccc;font-size:.72rem;">토큰 삭제</a>
+    </p>
+  </div>
+
+  <div class="tabs" id="tabBar" style="display:none;">
+    <button class="tab-btn active"         onclick="switchTab('today')"      id="tab-today">오늘 <span class="count" id="cnt-today">0</span></button>
+    <button class="tab-btn"                onclick="switchTab('preview')"    id="tab-preview">태스크 미리보기 <span class="count" id="cnt-preview">0</span></button>
+    <button class="tab-btn incomplete-tab" onclick="switchTab('incomplete')" id="tab-incomplete">미완료 <span class="count" id="cnt-incomplete">0</span></button>
+    <button class="tab-btn done-tab"       onclick="switchTab('done')"       id="tab-done">완료 <span class="count" id="cnt-done">0</span></button>
+  </div>
+
+  <div id="taskArea"></div>
+</div>
+
+<script>
+  const ASANA_BASE = 'https://app.asana.com/api/1.0';
+  let todayStr = '';
+  let currentTab = 'today';
+
+  // ── localStorage ─────────────────────────────────────────────
+  const loadStates      = () => JSON.parse(localStorage.getItem('task_states') || '{}');
+  const saveStates      = s  => localStorage.setItem('task_states', JSON.stringify(s));
+  const loadStoredTasks = () => JSON.parse(localStorage.getItem('stored_tasks') || '[]');
+  const saveStoredTasks = t  => localStorage.setItem('stored_tasks', JSON.stringify(t));
+
+  // ── 날짜 유틸 ────────────────────────────────────────────────
+  const isoDate = d => d.toISOString().slice(0,10);
+  const addDays = (d,n) => { const r = new Date(d); r.setDate(r.getDate()+n); return r; };
+
+  function setPreset(from, to) {
+    const today = new Date();
+    document.getElementById('dateFrom').value = isoDate(addDays(today, from));
+    document.getElementById('dateTo').value   = isoDate(addDays(today, to));
+  }
+
+  function dayDiff(startOn) {
+    if (!todayStr) todayStr = isoDate(new Date());
+    return Math.round((new Date(startOn).getTime() - new Date(todayStr).getTime()) / 86400000);
+  }
+
+  // ── 스코어러 ID 추출 ─────────────────────────────────────────
+  function extractScorerId(url) {
+    const m = url.match(/scorer\.co\.kr\/competition\/(\d+)/);
+    return m ? m[1] : null;
+  }
+
+  function extractUrls(text) {
+    return (text || '').match(/https?:\/\/[^\s"'\]\)]+/g) || [];
+  }
+
+  // ── 초기화 ───────────────────────────────────────────────────
+  window.addEventListener('DOMContentLoaded', () => {
+    setPreset(0, 7);
+    todayStr = isoDate(new Date());
+
+    const saved = localStorage.getItem('asana_token');
+    if (saved) {
+      document.getElementById('tokenInput').value = saved;
+      document.getElementById('savedHint').style.display = '';
+    }
+    const stored = loadStoredTasks();
+    if (stored.length) {
+      updateTabCounts();
+      document.getElementById('tabBar').style.display = '';
+      switchTab(currentTab);
+    }
+  });
+
+  function clearToken() {
+    localStorage.removeItem('asana_token');
+    document.getElementById('tokenInput').value = '';
+    document.getElementById('savedHint').style.display = 'none';
+  }
+
+  // ── Asana API ────────────────────────────────────────────────
+  async function asanaGet(token, path, params = {}) {
+    const url = new URL(ASANA_BASE + path);
+    Object.entries(params).forEach(([k,v]) => url.searchParams.set(k, v));
+    const res = await fetch(url, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error(`Asana API 오류 (${res.status}): ${t}`);
+    }
+    return res.json();
+  }
+
+  async function loadTasks() {
+    const token = document.getElementById('tokenInput').value.trim();
+    if (!token) { alert('토큰을 입력하세요.'); return; }
+
+    const btn = document.getElementById('loadBtn');
+    const errEl = document.getElementById('errorMsg');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span>불러오는 중...';
+    errEl.style.display = 'none';
+
+    try {
+      const dateFrom = document.getElementById('dateFrom').value || isoDate(new Date());
+      const dateTo   = document.getElementById('dateTo').value   || dateFrom;
+
+      // 날짜 범위 집합
+      const from = new Date(dateFrom), to = new Date(dateTo);
+      const targetDates = new Set();
+      for (let d = new Date(from); d <= to; d.setDate(d.getDate()+1)) {
+        targetDates.add(isoDate(new Date(d)));
+      }
+
+      // 사용자 정보
+      const meBody = await asanaGet(token, '/users/me', { opt_fields: 'gid,name' });
+      const userGid = meBody.data.gid;
+
+      // 워크스페이스 목록
+      const wsBody = await asanaGet(token, '/workspaces', { opt_fields: 'gid,name' });
+      const workspaces = wsBody.data;
+
+      const allTasks = [];
+      for (const ws of workspaces) {
+        let offset = null;
+        while (true) {
+          const params = {
+            assignee: userGid,
+            workspace: ws.gid,
+            limit: 100,
+            opt_fields: 'gid,name,notes,start_on,due_on,completed,permalink_url',
+          };
+          if (offset) params.offset = offset;
+
+          const body = await asanaGet(token, '/tasks', params);
+          const chunk = body.data || [];
+          offset = body.next_page?.offset || null;
+
+          for (const t of chunk) {
+            if (t.completed) continue;
+            const taskDate = t.start_on || t.due_on;
+            if (!targetDates.has(taskDate)) continue;
+            allTasks.push({
+              gid: t.gid,
+              name: t.name,
+              start_on: taskDate,
+              due_on: t.due_on,
+              asana_url: t.permalink_url,
+              description_urls: extractUrls(t.notes),
+            });
+          }
+          if (!offset) break;
+        }
+      }
+
+      localStorage.setItem('asana_token', token);
+      document.getElementById('savedHint').style.display = '';
+
+      mergeIntoStorage(allTasks);
+      todayStr = isoDate(new Date());
+      updateTabCounts();
+      document.getElementById('tabBar').style.display = '';
+      switchTab(currentTab);
+
+    } catch(e) {
+      errEl.textContent = '오류: ' + e.message;
+      errEl.style.display = '';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '불러오기';
+    }
+  }
+
+  function mergeIntoStorage(newTasks) {
+    const stored = loadStoredTasks();
+    const map = Object.fromEntries(stored.map(t => [t.gid, t]));
+    newTasks.forEach(t => { map[t.gid] = t; });
+    saveStoredTasks(Object.values(map));
+  }
+
+  // ── 완료 토글 ─────────────────────────────────────────────────
+  function toggleDone(gid) {
+    const states = loadStates();
+    states[gid] = states[gid] || {};
+    states[gid].completed = !states[gid].completed;
+    if (states[gid].completed) {
+      states[gid].completed_date = isoDate(new Date());
+    } else {
+      delete states[gid].completed_date;
+    }
+    saveStates(states);
+    updateTabCounts();
+    switchTab(currentTab);
+  }
+
+  function saveMemo(gid, value) {
+    const states = loadStates();
+    states[gid] = states[gid] || {};
+    states[gid].memo = value;
+    saveStates(states);
+  }
+
+  // ── 탭 ───────────────────────────────────────────────────────
+  function updateTabCounts() {
+    const states = loadStates();
+    const stored = loadStoredTasks();
+
+    const todayCount   = stored.filter(t => dayDiff(t.start_on) === 0).length;
+    const previewCount = stored.filter(t => dayDiff(t.start_on) > 0).length;
+    const incomplete   = stored.filter(t => !states[t.gid]?.completed && dayDiff(t.start_on) < 0);
+    const done         = stored.filter(t => !!states[t.gid]?.completed);
+
+    document.getElementById('cnt-today').textContent      = todayCount;
+    document.getElementById('cnt-preview').textContent    = previewCount;
+    document.getElementById('cnt-incomplete').textContent = incomplete.length;
+    document.getElementById('cnt-done').textContent       = done.length;
+  }
+
+  function switchTab(tab) {
+    currentTab = tab;
+    ['today','preview','incomplete','done'].forEach(id => {
+      document.getElementById(`tab-${id}`).classList.toggle('active', id === tab);
+    });
+
+    const states = loadStates();
+    const stored = loadStoredTasks();
+
+    if (tab === 'today') {
+      renderTasksFlat(stored.filter(t => dayDiff(t.start_on) === 0));
+    } else if (tab === 'preview') {
+      renderTasksPreview(stored.filter(t => dayDiff(t.start_on) > 0));
+    } else if (tab === 'incomplete') {
+      renderTasksFlat(stored.filter(t => !states[t.gid]?.completed && dayDiff(t.start_on) < 0));
+    } else if (tab === 'done') {
+      renderTasksDone(stored.filter(t => !!states[t.gid]?.completed));
+    }
+  }
+
+  // ── 렌더링 ───────────────────────────────────────────────────
+  const DAY_LABELS = ['오늘', '내일', '모레'];
+
+  function renderTasksPreview(tasks) {
+    const area = document.getElementById('taskArea');
+    if (!tasks.length) {
+      area.innerHTML = '<div class="card empty">예정된 업무가 없습니다.</div>';
+      return;
+    }
+    const groups = {};
+    tasks.forEach(t => {
+      const d = t.start_on || '날짜 없음';
+      if (!groups[d]) groups[d] = [];
+      groups[d].push(t);
+    });
+    let html = '';
+    Object.keys(groups).sort().forEach((dateKey, idx) => {
+      const d = dayDiff(dateKey);
+      const label = d === 1 ? '내일' : d === 2 ? '모레' : `${d}일 후`;
+      const dateLabel = dateKey !== '날짜 없음'
+        ? new Date(dateKey).toLocaleDateString('ko-KR', {month:'long', day:'numeric'})
+        : '';
+      const divider = idx > 0 ? `<hr style="border:none;border-top:2px solid #e0e8ff;margin:28px 0 20px;">` : '';
+      html += `${divider}<p style="font-size:.9rem;font-weight:700;color:#3d5a99;margin-bottom:12px;display:flex;align-items:center;gap:8px;">
+        <span style="background:#3d5a99;color:white;border-radius:6px;padding:3px 10px;font-size:.8rem;">${label}</span>
+        <span style="color:#aaa;font-weight:400;font-size:.82rem;">${dateLabel}</span>
+      </p>`;
+      html += `<div class="task-list" style="margin-bottom:8px;">${groups[dateKey].map(t => taskHTML(t)).join('')}</div>`;
+    });
+    area.innerHTML = html;
+  }
+
+  function renderTasksDone(tasks) {
+    const area = document.getElementById('taskArea');
+    if (!tasks.length) {
+      area.innerHTML = '<div class="card empty">완료된 업무가 없습니다.</div>';
+      return;
+    }
+    const states = loadStates();
+    const groups = {};
+    tasks.forEach(t => {
+      const d = states[t.gid]?.completed_date || '날짜 미기록';
+      if (!groups[d]) groups[d] = [];
+      groups[d].push(t);
+    });
+    const sortedDates = Object.keys(groups).sort((a, b) => {
+      if (a === '날짜 미기록') return 1;
+      if (b === '날짜 미기록') return -1;
+      return b.localeCompare(a);
+    });
+    let html = '';
+    sortedDates.forEach((dateKey, idx) => {
+      const divider = idx > 0 ? `<hr style="border:none;border-top:2px solid #e8f5e9;margin:28px 0 20px;">` : '';
+      let labelText = dateKey;
+      if (dateKey !== '날짜 미기록') {
+        const diff = Math.round((new Date(isoDate(new Date())).getTime() - new Date(dateKey).getTime()) / 86400000);
+        if (diff === 0) labelText = '오늘';
+        else if (diff === 1) labelText = '어제';
+        else labelText = `${diff}일 전`;
+      }
+      const dateDisplay = dateKey !== '날짜 미기록'
+        ? new Date(dateKey).toLocaleDateString('ko-KR', {month:'long', day:'numeric'})
+        : '';
+      html += `${divider}<p style="font-size:.9rem;font-weight:700;color:#4caf50;margin-bottom:12px;display:flex;align-items:center;gap:8px;">
+        <span style="background:#4caf50;color:white;border-radius:6px;padding:3px 10px;font-size:.8rem;">✓ ${labelText}</span>
+        <span style="color:#aaa;font-weight:400;font-size:.82rem;">${dateDisplay}</span>
+      </p>`;
+      html += `<div class="task-list" style="margin-bottom:8px;">${groups[dateKey].map(t => taskHTML(t)).join('')}</div>`;
+    });
+    area.innerHTML = html;
+  }
+
+  function renderTasksFlat(tasks) {
+    const area = document.getElementById('taskArea');
+    if (!tasks.length) {
+      area.innerHTML = '<div class="card empty">업무가 없습니다. 🎉</div>';
+      return;
+    }
+    const sorted = [...tasks].sort((a,b) => (a.start_on||'').localeCompare(b.start_on||''));
+    area.innerHTML = `<div class="task-list">${sorted.map(t => taskHTML(t)).join('')}</div>`;
+  }
+
+  function taskHTML(t) {
+    const states = loadStates();
+    const state = states[t.gid] || {};
+    const completed = !!state.completed;
+    const memo = state.memo || '';
+
+    const d = dayDiff(t.start_on);
+    const badgeClass = d === 0 ? 'today' : d === 1 ? 'tomorrow' : d === 2 ? 'after' : 'past';
+    const badgeText  = d >= 0 && d <= 2 ? DAY_LABELS[d] : (t.start_on || '');
+
+    const urlsHTML = t.description_urls.map(url => {
+      const scorerId = extractScorerId(url);
+      return `
+      <div class="url-row">
+        ${scorerId ? `<span class="scorer-id"><span class="scorer-id-label">ID</span>${scorerId}</span>` : ''}
+        <span class="url-text">${url}</span>
+        <button class="btn-open" onclick="window.open('${escapeJs(url)}','_blank')">열기</button>
+      </div>`;
+    }).join('') || '<p style="font-size:.8rem;color:#ccc;">description에 URL이 없습니다.</p>';
+
+    return `
+      <div class="task-card${completed ? ' completed' : ''}" id="task-${t.gid}">
+        <div class="task-header">
+          <span class="task-name${completed ? ' completed' : ''}">${escapeHtml(t.name)}</span>
+          <span class="day-badge ${badgeClass}">${badgeText}</span>
+          <span class="task-date">${t.start_on || ''}${t.due_on && t.due_on !== t.start_on ? ' ~ ' + t.due_on : ''}</span>
+          ${t.asana_url ? `<button class="btn-open" onclick="window.open('${escapeJs(t.asana_url)}','_blank')">아사나</button>` : ''}
+          <button class="btn-done${completed ? ' completed' : ''}" onclick="toggleDone('${t.gid}')">
+            ${completed ? '✓ 완료' : '완료 표시'}
+          </button>
+        </div>
+        ${urlsHTML}
+        <div class="memo-row">
+          <textarea class="memo-input" placeholder="메모를 입력하세요..."
+            oninput="saveMemo('${t.gid}', this.value)"
+          >${escapeHtml(memo)}</textarea>
+        </div>
+      </div>`;
+  }
+
+  function escapeJs(s)   { return (s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"'); }
+  function escapeHtml(s) { return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  document.getElementById('tokenInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') loadTasks();
+  });
+</script>
+</body>
+</html>
