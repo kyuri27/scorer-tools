@@ -778,6 +778,7 @@ function resetAll() {
   window._judgeStatusOverrides = {};
   window._judgesData = [];
   window._judgeCustomOrder = null;
+  window._judgesSaved = null;
   window._awardLabelOverrides = {};
   window._processedUploadFiles = [];
   window._processedNoticeFiles = [];
@@ -1113,10 +1114,11 @@ files 배열에는 첨부한 PDF 파일마다 각 페이지의 큰 헤드라인�
       const plannedNames = (seumterData.judges_planned || []).map(j => j.name).filter(Boolean);
       let attendedRaw = (data.judges_attended && data.judges_attended.length > 0)
         ? data.judges_attended : [];
-      // 세움터 명단에 있는 이름만 통과, 없는 이름은 제외
+      // 이름 정제 후 fuzzy 매칭으로 필터 (공백 차이 등 미세한 불일치 허용)
+      const attendedCleaned = attendedRaw.map(n => cleanPersonName(n));
       const attendedFiltered = plannedNames.length > 0
-        ? attendedRaw.filter(n => plannedNames.includes(n))
-        : attendedRaw;
+        ? attendedCleaned.filter(n => plannedNames.some(pn => fuzzyMatchName(pn, n)))
+        : attendedCleaned;
 
       // judges_planned가 없었는데 Gemini가 공고 파일에서 추출한 경우 반영
       const hadNoPlannedJudges = (seumterData.judges_planned || []).length === 0;
@@ -1536,17 +1538,18 @@ function judgeStatusPill(status) {
   return `<span class="pill pill-attended">참석</span>`;
 }
 
+let _judgeDragSrc = null;
+
 function renderJudgesTable() {
   const judges = window._judgesData;
   const container = document.getElementById('judgesTableContainer');
   if (!container || !judges || !judges.length) return;
-  let t = `<table class="result-table"><thead><tr>
-    <th style="width:36px;"></th>
+  const saved = !!window._judgesSaved;
+  let t = `<table class="result-table" id="judgesTable"><thead><tr>
+    <th style="width:20px;color:#9ca3af;font-size:11px;" title="드래그해서 순서 변경">⠿</th>
     <th>구분</th><th>성명</th><th>소속</th><th>상태</th>
   </tr></thead><tbody>`;
   judges.forEach((j, idx) => {
-    const isFirst = idx === 0;
-    const isLast  = idx === judges.length - 1;
     const typePill = j.type === '예비'
       ? `<span class="pill pill-reserve">예비</span>`
       : `<span class="pill" style="background:#dbeafe;color:#1e40af;">외부</span>`;
@@ -1556,11 +1559,13 @@ function renderJudgesTable() {
     const changed = (j.status !== origStatus);
     const pillHtml = judgeStatusPill(j.status)
       + (changed ? ' <span style="color:#f59e0b;font-size:11px;" title="수동 변경됨">✏️</span>' : '');
-    t += `<tr>
-      <td style="padding:2px 4px; white-space:nowrap;">
-        <button onclick="moveJudge(${idx},-1)" ${isFirst?'disabled':''} style="background:none;border:1px solid #d1d5db;border-radius:3px;padding:0 4px;cursor:pointer;font-size:11px;line-height:1.6;${isFirst?'opacity:.3':''}">▲</button>
-        <button onclick="moveJudge(${idx},1)"  ${isLast ?'disabled':''} style="background:none;border:1px solid #d1d5db;border-radius:3px;padding:0 4px;cursor:pointer;font-size:11px;line-height:1.6;${isLast ?'opacity:.3':''}">▼</button>
-      </td>
+    t += `<tr draggable="true" data-idx="${idx}"
+      ondragstart="judgeDragStart(event,${idx})"
+      ondragover="judgeDragOver(event)"
+      ondrop="judgeDrop(event,${idx})"
+      ondragend="judgeDragEnd(event)"
+      style="cursor:grab;">
+      <td style="text-align:center;color:#9ca3af;font-size:14px;user-select:none;">⠿</td>
       <td>${typePill}</td>
       <td>
         <input value="${j.name.replace(/"/g,'&quot;')}" onchange="updateJudgeName(${idx},this.value)"
@@ -1580,16 +1585,38 @@ function renderJudgesTable() {
     </tr>`;
   });
   t += `</tbody></table>`;
+  if (saved) {
+    t += `<div style="margin-top:4px;font-size:11px;color:#16a34a;">✓ 저장된 순서 적용 중</div>`;
+  }
   container.innerHTML = t;
 }
 
-function moveJudge(idx, dir) {
+function judgeDragStart(e, idx) {
+  _judgeDragSrc = idx;
+  e.dataTransfer.effectAllowed = 'move';
+  e.currentTarget.style.opacity = '0.4';
+}
+function judgeDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  e.currentTarget.style.background = '#eff6ff';
+}
+function judgeDrop(e, targetIdx) {
+  e.preventDefault();
+  if (_judgeDragSrc === null || _judgeDragSrc === targetIdx) return;
   const judges = window._judgesData;
-  if (!judges) return;
-  const newIdx = idx + dir;
-  if (newIdx < 0 || newIdx >= judges.length) return;
-  [judges[idx], judges[newIdx]] = [judges[newIdx], judges[idx]];
+  const item = judges.splice(_judgeDragSrc, 1)[0];
+  judges.splice(targetIdx, 0, item);
+  _judgeDragSrc = null;
   renderJudgesTable();
+}
+function judgeDragEnd(e) {
+  e.currentTarget.style.opacity = '';
+  e.currentTarget.style.background = '';
+  // 드롭 없이 취소된 경우
+  _judgeDragSrc = null;
+  // 하이라이트 제거
+  document.querySelectorAll('#judgesTable tr').forEach(r => { r.style.background = ''; });
 }
 
 function toggleJudgeStatusByIdx(idx) {
@@ -1609,6 +1636,17 @@ function updateJudgeName(idx, val) {
 function updateJudgeOrg(idx, val) {
   const j = (window._judgesData || [])[idx];
   if (j) j.org = val.trim();
+}
+
+function saveJudgesState() {
+  if (!window._judgesData || !window._judgesData.length) return;
+  window._judgesSaved = JSON.parse(JSON.stringify(window._judgesData));
+  const btn = event.currentTarget;
+  const orig = btn.innerHTML;
+  btn.innerHTML = '✓ 저장됨';
+  btn.style.background = '#15803d';
+  setTimeout(() => { btn.innerHTML = orig; btn.style.background = '#16a34a'; }, 1500);
+  renderJudgesTable();
 }
 
 // ───── 결과 렌더링 ─────
@@ -1669,14 +1707,18 @@ function renderSummary(s) {
     return aR - bR;
   });
 
-  // _origStatus 보존 후 전역 저장
-  judges.forEach(j => { j._origStatus = j.status; });
-  window._judgesData = judges;
+  // 저장된 편집 상태가 있으면 그대로 사용, 없으면 새로 계산한 순서 사용
+  const finalJudges = window._judgesSaved ? window._judgesSaved.map(j => ({...j})) : judges;
+  finalJudges.forEach(j => { if (!j._origStatus) j._origStatus = j.status; });
+  window._judgesData = finalJudges;
 
-  if (judges.length) {
-    html += `<h4>👥 심사위원 참석 현황 <span style="font-size:11px;font-weight:400;color:#6b7280;">— 순서·상태·성명·소속 수정 가능</span></h4>`;
+  if (finalJudges.length) {
+    html += `<h4>👥 심사위원 참석 현황 <span style="font-size:11px;font-weight:400;color:#6b7280;">— 드래그·상태·성명·소속 수정 후 저장</span></h4>`;
     html += `<div id="judgesTableContainer"></div>`;
-    html += `<button onclick="downloadJudgesTxt()" style="margin-top:8px; background:#0891b2; padding:8px 16px; font-size:13px;">👥 심사위원 텍스트 다운로드</button>`;
+    html += `<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+      <button onclick="saveJudgesState()" style="background:#16a34a;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;">💾 변경사항 저장</button>
+      <button onclick="downloadJudgesTxt()" style="background:#0891b2;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;">👥 심사위원 텍스트 다운로드</button>
+    </div>`;
   }
 
   // 수동 입력 수상작 우선, 없으면 JSON 데이터 사용
