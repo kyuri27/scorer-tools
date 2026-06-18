@@ -2361,7 +2361,7 @@ async function renderDownloads(data) {
     const groups = {};
     for (const f of fileArr) {
       if (f.type !== 'pdf' && f.type !== 'hwp') continue;
-      const nameNoExt = f.name.normalize('NFC').trim().replace(/\.(pdf|hwpx?)$/i, '');
+      const nameNoExt = f.name.normalize('NFC').trim().replace(/\.(pdf|hwpx?)$/i, '').replace(/\[붙임[^\]]*\]\s*/g, '').trim();
       let prefix;
       if (isNotice) {
         prefix = extractNoticePrefix(nameNoExt)
@@ -2429,7 +2429,7 @@ async function renderDownloads(data) {
     for (const f of fileArr) {
       if (f.type !== 'hwp' && f.type !== 'zip') continue;
       const ext = f.name.match(/\.(hwpx?|zip)$/i)?.[0] || (f.type === 'zip' ? '.zip' : '.hwp');
-      const nameNoExt = f.name.normalize('NFC').trim().replace(/\.(hwpx?|zip)$/i, '');
+      const nameNoExt = f.name.normalize('NFC').trim().replace(/\.(hwpx?|zip)$/i, '').replace(/\[붙임[^\]]*\]\s*/g, '').trim();
       const prefix = normalizePrefix(isNotice
         ? (extractNoticePrefix(nameNoExt) || (nameNoExt.includes('_') ? nameNoExt.split('_')[0] : nameNoExt))
         : (nameNoExt.includes('_') ? nameNoExt.split('_')[0] : nameNoExt));
