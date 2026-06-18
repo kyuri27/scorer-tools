@@ -1568,24 +1568,37 @@ function renderSummary(s) {
   // PDF 이름을 세움터 이름으로 정규화
   const normalizedAttended = normalizePdfNames(pdfAttended, seumterJudges);
 
-  // 세움터 이름 기준으로 참석 여부 결정
-  const judges = seumterJudges.map(j => {
-    const match = normalizedAttended.find(n => n.seumterName === j.name);
-    // 결과 파일 없이 공고 파일만 분석한 경우 참석 여부 판단 불가 → 기본 참석
-    const hasResultFiles = resultFiles.length > 0;
-    let status = match ? '참석' : (pdfAttended.length > 0 && hasResultFiles ? '불참' : '참석');
-    if (j.name === s.chairperson) status = '위원장';
-    const pdfNameDiff = match && match.pdfName ? match.pdfName : null;
-    const type = j.type || '외부'; // type 비어있으면 외부로 기본값
-    return { ...j, type, status, pdfNameDiff };
-  });
+  const hasResultFiles = resultFiles.length > 0;
+  const judges = [];
+  const addedSeumterNames = new Set();
 
-  // PDF에서 추출됐지만 세움터에 없는 이름 (예비위원 대체 참석 등)
+  // 1. PDF 문서 순서 우선: normalizedAttended 순서대로 추가
   for (const n of normalizedAttended) {
-    if (!judges.find(j => j.name === n.seumterName)) {
+    const seumterMatch = seumterJudges.find(j => j.name === n.seumterName);
+    if (seumterMatch) {
+      const type = seumterMatch.type || '외부';
+      let status = seumterMatch.name === s.chairperson ? '위원장' : '참석';
+      const pdfNameDiff = n.pdfName || null;
+      judges.push({ ...seumterMatch, type, status, pdfNameDiff });
+      addedSeumterNames.add(seumterMatch.name);
+    } else {
+      // PDF에 있지만 세움터에 없는 이름 → 예비위원 대체 참석 등
       judges.push({ type: '예비', name: n.seumterName, org: '', status: '참석', pdfNameDiff: n.pdfName });
+      addedSeumterNames.add(n.seumterName);
     }
   }
+
+  // 2. 세움터에 있지만 PDF에 없는 위원 → 뒤에 추가 (결과파일 있으면 불참, 없으면 참석)
+  for (const j of seumterJudges) {
+    if (!addedSeumterNames.has(j.name)) {
+      const type = j.type || '외부';
+      let status = pdfAttended.length > 0 && hasResultFiles ? '불참' : '참석';
+      if (j.name === s.chairperson) status = '위원장';
+      judges.push({ ...j, type, status, pdfNameDiff: null });
+    }
+  }
+
+  // 3. 예비 마지막 정렬
   judges.sort((a, b) => {
     const aR = (a.type || '').includes('예비') ? 1 : 0;
     const bR = (b.type || '').includes('예비') ? 1 : 0;
