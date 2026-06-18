@@ -1536,15 +1536,79 @@ function judgeStatusPill(status) {
   return `<span class="pill pill-attended">참석</span>`;
 }
 
-function toggleJudgeStatus(btn, name, originalStatus) {
-  if (!window._judgeStatusOverrides) window._judgeStatusOverrides = {};
-  const current = window._judgeStatusOverrides[name] ?? originalStatus;
-  // 불참이면 → 참석(위원장이면 위원장), 아니면 → 불참
-  const nonAbsent = (originalStatus === '불참') ? '참석' : originalStatus;
-  const next = (current === '불참') ? nonAbsent : '불참';
-  window._judgeStatusOverrides[name] = next;
-  const changed = (next !== originalStatus);
-  btn.innerHTML = judgeStatusPill(next) + (changed ? ' <span style="color:#f59e0b;font-size:11px;" title="수동 변경됨">✏️</span>' : '');
+function renderJudgesTable() {
+  const judges = window._judgesData;
+  const container = document.getElementById('judgesTableContainer');
+  if (!container || !judges || !judges.length) return;
+  let t = `<table class="result-table"><thead><tr>
+    <th style="width:36px;"></th>
+    <th>구분</th><th>성명</th><th>소속</th><th>상태</th>
+  </tr></thead><tbody>`;
+  judges.forEach((j, idx) => {
+    const isFirst = idx === 0;
+    const isLast  = idx === judges.length - 1;
+    const typePill = j.type === '예비'
+      ? `<span class="pill pill-reserve">예비</span>`
+      : `<span class="pill" style="background:#dbeafe;color:#1e40af;">외부</span>`;
+    const pdfHint = j.pdfNameDiff
+      ? ` <span style="color:#6b7280;font-size:10px;">(pdf: ${j.pdfNameDiff})</span>` : '';
+    const origStatus = j._origStatus || j.status;
+    const changed = (j.status !== origStatus);
+    const pillHtml = judgeStatusPill(j.status)
+      + (changed ? ' <span style="color:#f59e0b;font-size:11px;" title="수동 변경됨">✏️</span>' : '');
+    t += `<tr>
+      <td style="padding:2px 4px; white-space:nowrap;">
+        <button onclick="moveJudge(${idx},-1)" ${isFirst?'disabled':''} style="background:none;border:1px solid #d1d5db;border-radius:3px;padding:0 4px;cursor:pointer;font-size:11px;line-height:1.6;${isFirst?'opacity:.3':''}">▲</button>
+        <button onclick="moveJudge(${idx},1)"  ${isLast ?'disabled':''} style="background:none;border:1px solid #d1d5db;border-radius:3px;padding:0 4px;cursor:pointer;font-size:11px;line-height:1.6;${isLast ?'opacity:.3':''}">▼</button>
+      </td>
+      <td>${typePill}</td>
+      <td>
+        <input value="${j.name.replace(/"/g,'&quot;')}" onchange="updateJudgeName(${idx},this.value)"
+          style="border:1px solid #e5e7eb;border-radius:4px;padding:2px 5px;font-size:13px;width:68px;">
+        ${pdfHint}
+      </td>
+      <td>
+        <input value="${(j.org||'').replace(/"/g,'&quot;')}" onchange="updateJudgeOrg(${idx},this.value)"
+          placeholder="-" style="border:1px solid #e5e7eb;border-radius:4px;padding:2px 5px;font-size:13px;width:130px;">
+      </td>
+      <td>
+        <button onclick="toggleJudgeStatusByIdx(${idx})"
+          style="background:none;border:none;padding:0;cursor:pointer;" title="클릭해서 참석/불참 변경">
+          ${pillHtml}
+        </button>
+      </td>
+    </tr>`;
+  });
+  t += `</tbody></table>`;
+  container.innerHTML = t;
+}
+
+function moveJudge(idx, dir) {
+  const judges = window._judgesData;
+  if (!judges) return;
+  const newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= judges.length) return;
+  [judges[idx], judges[newIdx]] = [judges[newIdx], judges[idx]];
+  renderJudgesTable();
+}
+
+function toggleJudgeStatusByIdx(idx) {
+  const j = (window._judgesData || [])[idx];
+  if (!j) return;
+  const origStatus = j._origStatus || '참석';
+  const nonAbsent = origStatus === '불참' ? '참석' : origStatus;
+  j.status = j.status === '불참' ? nonAbsent : '불참';
+  renderJudgesTable();
+}
+
+function updateJudgeName(idx, val) {
+  const j = (window._judgesData || [])[idx];
+  if (j) j.name = val.trim();
+}
+
+function updateJudgeOrg(idx, val) {
+  const j = (window._judgesData || [])[idx];
+  if (j) j.org = val.trim();
 }
 
 // ───── 결과 렌더링 ─────
@@ -1605,36 +1669,13 @@ function renderSummary(s) {
     return aR - bR;
   });
 
-  // 심사위원 상태 전역 저장 (수동 변경용)
+  // _origStatus 보존 후 전역 저장
+  judges.forEach(j => { j._origStatus = j.status; });
   window._judgesData = judges;
-  if (!window._judgeStatusOverrides) window._judgeStatusOverrides = {};
 
   if (judges.length) {
-    html += `<h4>👥 심사위원 참석 현황 <span style="font-size:11px;font-weight:400;color:#6b7280;">— 상태 클릭해서 수동 변경 가능</span></h4>`;
-    html += `<table class="result-table"><thead><tr><th>구분</th><th>성명</th><th>소속</th><th>상태</th></tr></thead><tbody>`;
-    judges.forEach((j, idx) => {
-      const curStatus = window._judgeStatusOverrides[j.name] ?? j.status;
-      const changed = (curStatus !== j.status);
-      const pillHtml = judgeStatusPill(curStatus) + (changed ? ' <span style="color:#f59e0b;font-size:11px;" title="수동 변경됨">✏️</span>' : '');
-      const nameDisplay = j.pdfNameDiff
-        ? `${j.name} <span style="color:#6b7280;font-size:11px;">(pdf: ${j.pdfNameDiff})</span>`
-        : j.name;
-      const typePill = j.type === '예비'
-        ? `<span class="pill pill-reserve">예비</span>`
-        : `<span class="pill" style="background:#dbeafe;color:#1e40af;">외부</span>`;
-      html += `<tr>
-        <td>${typePill}</td>
-        <td>${nameDisplay}</td>
-        <td>${j.org || '-'}</td>
-        <td>
-          <button onclick="toggleJudgeStatus(this, '${j.name.replace(/'/g, "\\'")}', '${j.status}')"
-            style="background:none;border:none;padding:0;cursor:pointer;" title="클릭해서 참석/불참 변경">
-            ${pillHtml}
-          </button>
-        </td>
-      </tr>`;
-    });
-    html += `</tbody></table>`;
+    html += `<h4>👥 심사위원 참석 현황 <span style="font-size:11px;font-weight:400;color:#6b7280;">— 순서·상태·성명·소속 수정 가능</span></h4>`;
+    html += `<div id="judgesTableContainer"></div>`;
     html += `<button onclick="downloadJudgesTxt()" style="margin-top:8px; background:#0891b2; padding:8px 16px; font-size:13px;">👥 심사위원 텍스트 다운로드</button>`;
   }
 
@@ -1716,6 +1757,7 @@ function renderSummary(s) {
 
   document.getElementById('summaryArea').innerHTML = html;
   document.getElementById('summaryCard').style.display = 'block';
+  if (judges.length) renderJudgesTable();
 
   // 전역에 현재 데이터 저장 (이미지 다운로드용)
   window._currentData = s;
@@ -1836,7 +1878,7 @@ async function downloadJudgesTxt() {
   if (!judges || judges.length === 0) { alert('심사위원 정보가 없습니다.'); return; }
 
   const lines = judges.map(j => {
-    const status = (window._judgeStatusOverrides || {})[j.name] ?? j.status;
+    const status = j.status;
     return [j.type || '외부', j.name, j.org || '', status].join(', ');
   });
   const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/plain;charset=utf-8' });
@@ -1997,7 +2039,7 @@ async function runAwardInput() {
     name:   j.name,
     org:    j.org  || '',
     type:   j.type || '외부',
-    status: (window._judgeStatusOverrides || {})[j.name] ?? j.status,
+    status: j.status,
   }));
 
   try {
@@ -2042,7 +2084,7 @@ async function runCompetitionInput() {
     name:   j.name,
     org:    j.org  || '',
     type:   j.type || '외부',
-    status: (window._judgeStatusOverrides || {})[j.name] ?? j.status,
+    status: j.status,
   }));
 
   const noticeFiles = window._processedNoticeFiles || [];
