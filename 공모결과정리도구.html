@@ -624,6 +624,18 @@ async function callGemini(apiKey, parts, model, _retry = 0) {
     }),
   });
 
+  if (resp.status === 503 && _retry < 4) {
+    // 서버 과부하 — 지수 백오프 재시도
+    const waitSec = Math.pow(2, _retry + 1) * 5; // 10s, 20s, 40s, 80s
+    logProgress(`⏳ Gemini 서버 과부하(503) — ${waitSec}초 후 자동 재시도 (${_retry + 1}/4)...`);
+    for (let i = waitSec; i > 0; i--) {
+      if (_abortController.signal.aborted) throw new DOMException('Aborted', 'AbortError');
+      setProgress(_progressPct, `⏳ 서버 과부하 — ${i}초 후 재시도...`);
+      await new Promise(r => setTimeout(r, 1000));
+    }
+    return callGemini(apiKey, parts, model, _retry + 1);
+  }
+
   if (resp.status === 429 && _retry < 3) {
     // retryDelay 파싱 ("3.169s" → 3169ms)
     let waitMs = 10000; // 기본 10초
