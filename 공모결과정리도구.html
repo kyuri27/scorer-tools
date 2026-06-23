@@ -1506,25 +1506,35 @@ function getCompetitionName(data) {
 function cleanCompetitionName(raw) {
   if (!raw) return raw;
 
-  // 신축 외 공사 유형: 괄호로 이동
   const MODIFIERS = ['리모델링', '개축', '증축', '대수선', '보강', '재건축', '복원', '이전'];
-  // 제거할 접미사 (긴 것 먼저 처리)
   const SUFFIXES = ['설계공모', '제안공모', '현상공모', '지명공모', '설계경기', '공모', '사업'];
 
   let s = raw.trim();
-
-  // 공사 유형 추출 후 제거
   const found = [];
+
+  // 괄호 그룹 먼저 처리: 안에 모디파이어가 있으면 괄호째 제거 후 found에 추가
+  s = s.replace(/\(([^)]*)\)/g, (match, inner) => {
+    const innerMods = MODIFIERS.filter(m => inner.includes(m));
+    if (innerMods.length === 0) return match; // 모디파이어 없는 괄호는 그대로
+    innerMods.forEach(m => { if (!found.includes(m)) found.push(m); });
+    // 괄호 안에서 모디파이어·구분자 제거 후 나머지가 있으면 유지
+    const remaining = innerMods.reduce((acc, m) => acc.replace(new RegExp(m, 'g'), ''), inner)
+      .replace(/[,·\s]+/g, '').trim();
+    return remaining ? `(${remaining})` : '';
+  });
+
+  // 괄호 밖에 남은 모디파이어 처리
   for (const mod of MODIFIERS) {
     if (s.includes(mod)) {
-      found.push(mod);
+      if (!found.includes(mod)) found.push(mod);
       s = s.replace(new RegExp(mod, 'g'), '');
     }
   }
-  // 모디파이어 제거 후 남은 빈 괄호 정리
+
+  // 빈 괄호 정리
   s = s.replace(/\(\s*\)/g, '').trim();
 
-  // 접미사 반복 제거 (중첩된 경우 대비)
+  // 접미사 반복 제거
   let prev;
   do {
     prev = s;
