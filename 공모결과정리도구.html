@@ -451,7 +451,11 @@ function cleanNamesInData(data) {
     });
   }
   if (data.judges_attended) {
-    data.judges_attended = data.judges_attended.map(n => cleanPersonName(n));
+    data.judges_attended = data.judges_attended.map(item =>
+      typeof item === 'string'
+        ? { name: cleanPersonName(item), org: '' }
+        : { ...item, name: cleanPersonName(item.name || '') }
+    );
   }
   if (data.chairperson) data.chairperson = cleanPersonName(data.chairperson);
   if (data.awards) {
@@ -927,7 +931,7 @@ ${plannedJudgeNames}
 - judges_attended: 결과 파일의 심사평가표·심사의결서에 이름이 등장하는 위원만 포함`}
 
 [규칙]
-- judges_attended: ${hasPlannedJudges ? '위 심사위원 명단에 있는 사람 중 심사평가표·심사의결서에 이름이 등장하는 위원만 (서명 여부 무관하게 문서에 이름이 있으면 참석). **반드시 문서에 등장하는 순서 그대로** 배열에 담을 것 — JSON 명단 순서로 정렬하지 말 것' : '심사평가표·심사의결서에 이름이 등장하는 위원만. **반드시 문서에 등장하는 순서 그대로** 배열에 담을 것'}
+- judges_attended: ${hasPlannedJudges ? '위 심사위원 명단을 참고하여 심사평가표·심사의결서에 이름이 등장하는 위원을 {name, org} 객체 배열로 추출. 소속이 문서에 있으면 반드시 포함. **반드시 문서에 등장하는 순서 그대로** — JSON 명단 순서로 정렬하지 말 것' : '심사평가표·심사의결서에 이름이 등장하는 위원을 {name, org} 객체 배열로 추출. 소속이 문서에 있으면 반드시 포함. **반드시 문서에 등장하는 순서 그대로**'}
 - chairperson: 심사의결서에서 위원장 성명
 - announceDate: 당선작 발표일 (YYYY-MM-DD)
 - awards: 각 수상작의 구분명(awardType), 참가번호(심사번호), 설계사무소(office), 대표설계자(designer)를 함께 추출. awardType은 수상 결과표의 '구분' 열에 적힌 값을 그대로 사용 (예: 당선자, 2위, 3위, 우수작 등). '비고' 열의 값(1등 입상자, 2등 입상자 등)은 사용하지 말 것
@@ -938,7 +942,7 @@ ${plannedJudgeNames}
 
 [출력 형식]
 {
-  ${!hasPlannedJudges ? '"judges_planned": [{"type": "외부", "name": "성명", "org": "소속"}, {"type": "예비", "name": "성명", "org": "소속"}],\n  ' : ''}"judges_attended": ["참석위원1", "참석위원2"],
+  ${!hasPlannedJudges ? '"judges_planned": [{"type": "외부", "name": "성명", "org": "소속"}, {"type": "예비", "name": "성명", "org": "소속"}],\n  ' : ''}"judges_attended": [{"name": "참석위원1", "org": "소속1"}, {"name": "참석위원2", "org": "소속2"}],
   "chairperson": "위원장 성명",
   "announceDate": "YYYY-MM-DD",
   "awards": [
@@ -983,7 +987,7 @@ ${plannedJudgeNames}
     {"type": "외부", "name": "성명", "org": "소속"},
     {"type": "예비", "name": "성명", "org": "소속"}
   ],
-  "judges_attended": ["참석 위원1", "참석 위원2"],
+  "judges_attended": [{"name": "참석위원1", "org": "소속1"}, {"name": "참석위원2", "org": "소속2"}],
   "awards": [
     {"awardType": "당선작", "num": "6", "office": "설계사무소", "designer": "대표설계자", "imageFile": "파일명.pdf", "imagePage": 1, "imageIndex": 1}
   ],
@@ -1122,21 +1126,22 @@ files 배열에는 첨부한 PDF 파일마다 각 페이지의 큰 헤드라인�
         }
       });
 
-      // judges_attended를 세움터 명단으로 필터링 (Gemini가 비심사위원 이름을 넣는 경우 방지)
+      // judges_attended 정규화: 문자열 또는 {name,org} 객체 둘 다 처리
       const plannedNames = (seumterData.judges_planned || []).map(j => j.name).filter(Boolean);
-      let attendedRaw = (data.judges_attended && data.judges_attended.length > 0)
-        ? data.judges_attended : [];
-      // 이름 정제 후 fuzzy 매칭으로 필터 (공백 차이 등 미세한 불일치 허용)
-      const attendedCleaned = attendedRaw.map(n => cleanPersonName(n));
+      const attendedRaw = (data.judges_attended || []).map(item =>
+        typeof item === 'string'
+          ? { name: cleanPersonName(item), org: '' }
+          : { name: cleanPersonName(item.name || ''), org: item.org || '' }
+      ).filter(item => item.name);
       let attendedFiltered = plannedNames.length > 0
-        ? attendedCleaned.filter(n => plannedNames.some(pn => fuzzyMatchName(pn, n)))
-        : attendedCleaned;
-      // 필터 결과가 비어있는데 원본에 이름이 있으면 폴백: 원본 그대로 사용 + 경고
-      if (attendedFiltered.length === 0 && attendedCleaned.length > 0) {
-        logProgress(`⚠️ 심사위원 명단 매칭 실패 (세움터 명단과 문서 이름이 다를 수 있음) — 문서 추출 명단 그대로 사용`, 'warn');
-        attendedFiltered = attendedCleaned;
+        ? attendedRaw.filter(item => plannedNames.some(pn => fuzzyMatchName(pn, item.name)))
+        : attendedRaw;
+      // 필터 결과가 비어있는데 원본에 이름이 있으면 폴백
+      if (attendedFiltered.length === 0 && attendedRaw.length > 0) {
+        logProgress(`⚠️ 심사위원 명단 매칭 실패 — 문서 추출 명단 그대로 사용`, 'warn');
+        attendedFiltered = attendedRaw;
       }
-      logProgress(`[dbg] judges_attended: Gemini=${attendedCleaned.length}명, 필터후=${attendedFiltered.length}명`);
+      logProgress(`[dbg] judges_attended: Gemini=${attendedRaw.length}명, 필터후=${attendedFiltered.length}명`);
 
       // judges_planned가 없었는데 Gemini가 공고 파일에서 추출한 경우 반영
       const hadNoPlannedJudges = (seumterData.judges_planned || []).length === 0;
@@ -1307,13 +1312,15 @@ function fuzzyMatchName(seumterName, pdfName) {
 
 // PDF 이름 목록을 세움터 이름 기준으로 정규화
 // 반환: [{seumterName, pdfName}] - 매칭된 경우 pdfName이 다를 수 있음
-function normalizePdfNames(pdfNames, seumterJudges) {
-  return pdfNames.map(pdfName => {
+function normalizePdfNames(pdfAttended, seumterJudges) {
+  return pdfAttended.map(item => {
+    const pdfName = typeof item === 'string' ? item : (item.name || '');
+    const pdfOrg  = typeof item === 'string' ? '' : (item.org || '');
     const matched = seumterJudges.find(j => fuzzyMatchName(j.name, pdfName));
     if (matched && matched.name !== pdfName) {
-      return { seumterName: matched.name, pdfName };
+      return { seumterName: matched.name, pdfName, pdfOrg };
     }
-    return { seumterName: pdfName, pdfName: null }; // 완전 일치 or 매칭 없음
+    return { seumterName: pdfName, pdfName: null, pdfOrg };
   });
 }
 
@@ -1718,11 +1725,12 @@ function renderSummary(s) {
       const type = seumterMatch.type || '외부';
       let status = seumterMatch.name === s.chairperson ? '위원장' : '참석';
       const pdfNameDiff = n.pdfName || null;
-      judges.push({ ...seumterMatch, type, status, pdfNameDiff });
+      const org = seumterMatch.org || n.pdfOrg || '';
+      judges.push({ ...seumterMatch, type, status, pdfNameDiff, org });
       addedSeumterNames.add(seumterMatch.name);
     } else {
       // PDF에 있지만 세움터에 없는 이름 → 기본 외부 위원
-      judges.push({ type: '외부', name: n.seumterName, org: '', status: '참석', pdfNameDiff: n.pdfName });
+      judges.push({ type: '외부', name: n.seumterName, org: n.pdfOrg || '', status: '참석', pdfNameDiff: n.pdfName });
       addedSeumterNames.add(n.seumterName);
     }
   }
