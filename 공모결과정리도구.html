@@ -971,7 +971,8 @@ ${plannedJudgeNames}
 - 건축행위(buildType): 신축이면 빈 문자열, "증축"/"개축"/"리모델링"/"대수선" 등이면 해당 값
 - 헤드라인(headline): 큰 헤드라인만 사용. 괄호 안 부제목("(투표제)", "- 5개작품", "- 결선투표" 등)은 제외하고 동일한 큰 헤드라인끼리 묶이게. 예: "심사위원별 평가표", "심사위원별 평가집계표", "심사의결서", "작품 선정 사유서"
 - 심사위원: 참여 예정자(judges_planned)와 실제 참석자(judges_attended)를 정확히 구분
-- 수상작 num(참가번호)은 문서에서 명확히 확인된 번호만 적고, 찾을 수 없으면 반드시 ""(빈 문자열)로 두세요. 임의의 순번(1, 2, 3...)을 넣지 마세요
+- 수상작(awards): 결과 공고·심사결과표에서 구분(awardType), 업체명/설계사무소(office), 대표설계자(designer), 참가번호(num)를 추출. 공동응모는 office에 "+" 구분자로 연결 (예: "A건축사사무소+B건축사사무소"). num은 문서에 명확히 있을 때만 적고 없으면 반드시 ""
+- awardType은 결과표의 구분 열 값 그대로 사용 (당선작, 우수작, 가작 1 등). 공동응모 여부는 awardType에 포함하지 말 것
 - files의 fileName은 각 파일 뒤에 표시된 [위 파일의 파일명: XXX]의 XXX와 동일하게 적어주세요
 
 [출력 형식]
@@ -1167,6 +1168,11 @@ files 배열에는 첨부한 PDF 파일마다 각 페이지의 큰 헤드라인�
       logProgress(`   참석 위원: ${data.judges_attended.join(', ') || '(없음)'}`, 'done');
       logProgress(`   수상작: ${data.awards.map(a => `${a.awardType}_${a.num}`).join(', ')}`, 'done');
       logProgress(`   [Gemini awards raw] ${JSON.stringify(geminiAwards.map(a => ({t:a.awardType,n:a.num,f:a.imageFile,p:a.imagePage,i:a.imageIndex})))}`);
+    }
+
+    if (!hasSeumter) {
+      logProgress(`   수상작: ${(data.awards||[]).map(a=>`${a.awardType}(${a.office||'-'})`).join(', ') || '(없음)'}`);
+      logProgress(`   참석 위원: ${(data.judges_attended||[]).map(j=>typeof j==='string'?j:j.name).join(', ') || '(없음)'}`);
     }
 
     data = await extractPdfAwardImages(data, resultFiles);
