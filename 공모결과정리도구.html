@@ -1128,9 +1128,15 @@ files 배열에는 첨부한 PDF 파일마다 각 페이지의 큰 헤드라인�
         ? data.judges_attended : [];
       // 이름 정제 후 fuzzy 매칭으로 필터 (공백 차이 등 미세한 불일치 허용)
       const attendedCleaned = attendedRaw.map(n => cleanPersonName(n));
-      const attendedFiltered = plannedNames.length > 0
+      let attendedFiltered = plannedNames.length > 0
         ? attendedCleaned.filter(n => plannedNames.some(pn => fuzzyMatchName(pn, n)))
         : attendedCleaned;
+      // 필터 결과가 비어있는데 원본에 이름이 있으면 폴백: 원본 그대로 사용 + 경고
+      if (attendedFiltered.length === 0 && attendedCleaned.length > 0) {
+        logProgress(`⚠️ 심사위원 명단 매칭 실패 (세움터 명단과 문서 이름이 다를 수 있음) — 문서 추출 명단 그대로 사용`, 'warn');
+        attendedFiltered = attendedCleaned;
+      }
+      logProgress(`[dbg] judges_attended: Gemini=${attendedCleaned.length}명, 필터후=${attendedFiltered.length}명`);
 
       // judges_planned가 없었는데 Gemini가 공고 파일에서 추출한 경우 반영
       const hadNoPlannedJudges = (seumterData.judges_planned || []).length === 0;
