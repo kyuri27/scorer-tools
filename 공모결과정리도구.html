@@ -1617,11 +1617,12 @@ function renderJudgesTable() {
         <input value="${(j.org||'').replace(/"/g,'&quot;')}" onchange="updateJudgeOrg(${idx},this.value)"
           placeholder="-" style="border:1px solid #e5e7eb;border-radius:4px;padding:2px 5px;font-size:13px;width:130px;">
       </td>
-      <td>
+      <td style="white-space:nowrap;">
         <button onclick="toggleJudgeStatusByIdx(${idx})"
           style="background:none;border:none;padding:0;cursor:pointer;" title="클릭해서 참석/불참 변경">
           ${pillHtml}
         </button>
+        <button onclick="deleteJudge(${idx})" style="background:none;border:none;padding:0 0 0 4px;cursor:pointer;color:#d1d5db;font-size:13px;" title="삭제">✕</button>
       </td>
     </tr>`;
   });
@@ -1666,6 +1667,13 @@ function toggleJudgeStatusByIdx(idx) {
   const origStatus = j._origStatus || '참석';
   const nonAbsent = origStatus === '불참' ? '참석' : origStatus;
   j.status = j.status === '불참' ? nonAbsent : '불참';
+  renderJudgesTable();
+}
+
+function deleteJudge(idx) {
+  const judges = window._judgesData;
+  if (!judges) return;
+  judges.splice(idx, 1);
   renderJudgesTable();
 }
 
