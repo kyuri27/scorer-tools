@@ -550,7 +550,7 @@
       const scorerId = extractScorerId(url);
       return `
       <div style="margin-bottom:6px;">
-        ${scorerId ? `<div style="margin-bottom:4px;"><span class="scorer-id"><span class="scorer-id-label">ID</span>${scorerId}</span></div>` : ''}
+        ${scorerId ? `<div style="margin-bottom:4px;"><span class="scorer-id" style="cursor:pointer;" onclick="openJeongri('${scorerId}','${escapeJs(t.name)}')"><span class="scorer-id-label">ID</span>${scorerId}</span></div>` : ''}
         <div class="url-row">
           <span class="url-text">${url}</span>
           <button class="btn-open" onclick="window.open('${escapeJs(url)}','_blank')">열기</button>
@@ -576,6 +576,12 @@
           >${escapeHtml(memo)}</textarea>
         </div>
       </div>`;
+  }
+
+  function openJeongri(id, name) {
+    const base = 'https://kyuri27.github.io/scorer-tools/공모결과정리도구.html';
+    const url = `${base}?id=${encodeURIComponent(id)}&name=${encodeURIComponent(name)}`;
+    window.open(url, '_blank');
   }
 
   function escapeJs(s)   { return (s||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'\\"'); }

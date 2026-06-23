@@ -374,6 +374,17 @@ window.addEventListener('DOMContentLoaded', () => {
     PDFDocument = PDFLib.PDFDocument;
   }
 
+  // URL 파라미터로 공모 ID/이름 자동 입력
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('id')) {
+    const idEl = document.getElementById('competitionIdInput');
+    if (idEl) idEl.value = params.get('id');
+  }
+  if (params.get('name')) {
+    const nameEl = document.getElementById('manualCompetitionName');
+    if (nameEl) nameEl.value = params.get('name');
+  }
+
   // API 키 복원
   const saved = localStorage.getItem('gemini_api_key');
   if (saved) document.getElementById('apiKey').value = saved;
