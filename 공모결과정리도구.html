@@ -1579,8 +1579,8 @@ function renderJudgesTable() {
   </tr></thead><tbody>`;
   judges.forEach((j, idx) => {
     const typePill = j.type === '예비'
-      ? `<span class="pill pill-reserve">예비</span>`
-      : `<span class="pill" style="background:#dbeafe;color:#1e40af;">외부</span>`;
+      ? `<button onclick="updateJudgeType(${idx})" style="background:none;border:none;padding:0;cursor:pointer;" title="클릭해서 외부/예비 변경"><span class="pill pill-reserve">예비</span></button>`
+      : `<button onclick="updateJudgeType(${idx})" style="background:none;border:none;padding:0;cursor:pointer;" title="클릭해서 외부/예비 변경"><span class="pill" style="background:#dbeafe;color:#1e40af;">외부</span></button>`;
     const pdfHint = j.pdfNameDiff
       ? ` <span style="color:#6b7280;font-size:10px;">(pdf: ${j.pdfNameDiff})</span>` : '';
     const origStatus = j._origStatus || j.status;
@@ -1656,6 +1656,13 @@ function toggleJudgeStatusByIdx(idx) {
   renderJudgesTable();
 }
 
+function updateJudgeType(idx) {
+  const j = (window._judgesData || [])[idx];
+  if (!j) return;
+  j.type = j.type === '예비' ? '외부' : '예비';
+  renderJudgesTable();
+}
+
 function updateJudgeName(idx, val) {
   const j = (window._judgesData || [])[idx];
   if (j) j.name = val.trim();
@@ -1692,7 +1699,9 @@ function renderSummary(s) {
   if (s.resultNoticeUrl) html += `<li><b>심사결과 공고</b>: <a href="${s.resultNoticeUrl}" target="_blank" style="color:#0891b2; word-break:break-all;">${s.resultNoticeUrl}</a></li>`;
   html += `</ul>`;
 
-  const seumterJudges = getManualJudges() || s.judges_planned || [];
+  // 이름 없거나 '미지정'인 placeholder 제거
+  const seumterJudges = (getManualJudges() || s.judges_planned || [])
+    .filter(j => j.name && j.name.trim() && !j.name.includes('미지정'));
   const pdfAttended = s.judges_attended || [];
 
   // PDF 이름을 세움터 이름으로 정규화
@@ -1712,8 +1721,8 @@ function renderSummary(s) {
       judges.push({ ...seumterMatch, type, status, pdfNameDiff });
       addedSeumterNames.add(seumterMatch.name);
     } else {
-      // PDF에 있지만 세움터에 없는 이름 → 예비위원 대체 참석 등
-      judges.push({ type: '예비', name: n.seumterName, org: '', status: '참석', pdfNameDiff: n.pdfName });
+      // PDF에 있지만 세움터에 없는 이름 → 기본 외부 위원
+      judges.push({ type: '외부', name: n.seumterName, org: '', status: '참석', pdfNameDiff: n.pdfName });
       addedSeumterNames.add(n.seumterName);
     }
   }
