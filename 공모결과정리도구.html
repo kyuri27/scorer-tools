@@ -449,9 +449,9 @@ function cleanPersonName(name) {
   return name.replace(/\s+/g, '');
 }
 function normalizeJudgeType(type) {
-  if (!type) return '외부';
+  if (!type) return '본';
   if (type.includes('예비')) return '예비';
-  return '외부'; // 본위원, 외부위원, 심사위원 등 모두 외부
+  return '본'; // 본위원, 외부위원, 내부위원, 심사위원 등 모두 본
 }
 function cleanNamesInData(data) {
   if (!data) return data;
@@ -1450,11 +1450,11 @@ function parseJudgesText(text) {
   if (!text || !text.trim()) return null;
   const lines = text.split('\n').map(l => l.trim()).filter(l => l);
   const judges = [];
-  let currentType = '외부';
+  let currentType = '본';
 
   for (const line of lines) {
     // 형식 2: 탭 또는 쉼표 구분 (심사위원/예비위원[탭/,]이름[탭/,]소속)
-    const hasSep = line.includes('\t') || /^(외부|예비)\s*,/.test(line);
+    const hasSep = line.includes('\t') || /^(본|외부|예비)\s*,/.test(line);
     if (hasSep) {
       const parts = line.includes('\t')
         ? line.split('\t').map(p => p.trim())
@@ -1474,7 +1474,7 @@ function parseJudgesText(text) {
       currentType = '예비'; continue;
     }
     if (/^(외부\s*)?심사위원/.test(line) && !/[：:]/.test(line)) {
-      currentType = '외부'; continue;
+      currentType = '본'; continue;
     }
 
     // 형식 1: 콜론 구분 — "예비1 이름: 소속" 또는 "이름: 소속"
@@ -1513,15 +1513,15 @@ function previewManualJudges() {
     preview.innerHTML = '';
     return;
   }
-  const outer = judges.filter(j => j.type === '외부').length;
+  const outer = judges.filter(j => j.type === '본').length;
   const reserve = judges.filter(j => j.type === '예비').length;
-  let html = `<div style="margin-top:8px; font-size:11px; color:#0369a1; margin-bottom:4px;">✅ ${judges.length}명 인식됨 (외부 ${outer}명, 예비 ${reserve}명)</div>`;
+  let html = `<div style="margin-top:8px; font-size:11px; color:#0369a1; margin-bottom:4px;">✅ ${judges.length}명 인식됨 (본 ${outer}명, 예비 ${reserve}명)</div>`;
   html += `<table style="width:100%;border-collapse:collapse;font-size:12px;">`;
   html += `<thead><tr style="background:#f0f9ff;"><th style="padding:3px 8px;text-align:left;font-weight:600;">구분</th><th style="padding:3px 8px;text-align:left;font-weight:600;">성명</th><th style="padding:3px 8px;text-align:left;font-weight:600;">소속</th></tr></thead><tbody>`;
   judges.forEach(j => {
     const typePill = j.type === '예비'
       ? `<span class="pill pill-reserve">예비</span>`
-      : `<span class="pill" style="background:#dbeafe;color:#1e40af;">외부</span>`;
+      : `<span class="pill" style="background:#dbeafe;color:#1e40af;">본</span>`;
     html += `<tr><td style="padding:3px 8px;">${typePill}</td><td style="padding:3px 8px;">${j.name}</td><td style="padding:3px 8px;color:#6b7280;">${j.org || '-'}</td></tr>`;
   });
   html += `</tbody></table>`;
@@ -1605,8 +1605,8 @@ function renderJudgesTable() {
   </tr></thead><tbody>`;
   judges.forEach((j, idx) => {
     const typePill = j.type === '예비'
-      ? `<button onclick="updateJudgeType(${idx})" style="background:none;border:none;padding:0;cursor:pointer;" title="클릭해서 외부/예비 변경"><span class="pill pill-reserve">예비</span></button>`
-      : `<button onclick="updateJudgeType(${idx})" style="background:none;border:none;padding:0;cursor:pointer;" title="클릭해서 외부/예비 변경"><span class="pill" style="background:#dbeafe;color:#1e40af;">외부</span></button>`;
+      ? `<button onclick="updateJudgeType(${idx})" style="background:none;border:none;padding:0;cursor:pointer;" title="클릭해서 본/예비 변경"><span class="pill pill-reserve">예비</span></button>`
+      : `<button onclick="updateJudgeType(${idx})" style="background:none;border:none;padding:0;cursor:pointer;" title="클릭해서 본/예비 변경"><span class="pill" style="background:#dbeafe;color:#1e40af;">본</span></button>`;
     const pdfHint = j.pdfNameDiff
       ? ` <span style="color:#6b7280;font-size:10px;">(pdf: ${j.pdfNameDiff})</span>` : '';
     const origStatus = j._origStatus || j.status;
@@ -1693,7 +1693,7 @@ function deleteJudge(idx) {
 function updateJudgeType(idx) {
   const j = (window._judgesData || [])[idx];
   if (!j) return;
-  j.type = j.type === '예비' ? '외부' : '예비';
+  j.type = j.type === '예비' ? '본' : '예비';
   renderJudgesTable();
 }
 
@@ -1749,7 +1749,7 @@ function renderSummary(s) {
   for (const n of normalizedAttended) {
     const seumterMatch = seumterJudges.find(j => j.name === n.seumterName);
     if (seumterMatch) {
-      const type = seumterMatch.type || '외부';
+      const type = seumterMatch.type || '본';
       let status = seumterMatch.name === s.chairperson ? '위원장' : '참석';
       const pdfNameDiff = n.pdfName || null;
       const org = seumterMatch.org || n.pdfOrg || '';
@@ -1757,7 +1757,7 @@ function renderSummary(s) {
       addedSeumterNames.add(seumterMatch.name);
     } else {
       // PDF에 있지만 세움터에 없는 이름 → 기본 외부 위원
-      judges.push({ type: '외부', name: n.seumterName, org: n.pdfOrg || '', status: '참석', pdfNameDiff: n.pdfName });
+      judges.push({ type: '본', name: n.seumterName, org: n.pdfOrg || '', status: '참석', pdfNameDiff: n.pdfName });
       addedSeumterNames.add(n.seumterName);
     }
   }
@@ -1765,7 +1765,7 @@ function renderSummary(s) {
   // 2. 세움터에 있지만 PDF에 없는 위원 → 뒤에 추가 (결과파일 있으면 불참, 없으면 참석)
   for (const j of seumterJudges) {
     if (!addedSeumterNames.has(j.name)) {
-      const type = j.type || '외부';
+      const type = j.type || '본';
       let status = pdfAttended.length > 0 && hasResultFiles ? '불참' : '참석';
       if (j.name === s.chairperson) status = '위원장';
       judges.push({ ...j, type, status, pdfNameDiff: null });
@@ -2037,7 +2037,7 @@ async function downloadJudgesTxt() {
 
   const lines = judges.map(j => {
     const status = j.status;
-    return [j.type || '외부', j.name, j.org || '', status].join(', ');
+    return [j.type || '본', j.name, j.org || '', status].join(', ');
   });
   const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/plain;charset=utf-8' });
 
@@ -2196,7 +2196,7 @@ async function runAwardInput() {
   const judges = (window._judgesData || []).map(j => ({
     name:   j.name,
     org:    j.org  || '',
-    type:   j.type || '외부',
+    type:   j.type || '본',
     status: j.status,
   }));
 
@@ -2241,7 +2241,7 @@ async function runCompetitionInput() {
   const judges = (window._judgesData || []).map(j => ({
     name:   j.name,
     org:    j.org  || '',
-    type:   j.type || '외부',
+    type:   j.type || '본',
     status: j.status,
   }));
 
