@@ -1799,7 +1799,11 @@ function renderSummary(s) {
       const labelHtml = (!a.num && !manualAwards && window._awardLabelOverrides[idx] === undefined)
         ? `<span style="color:#d97706;" title="참가번호 없음">${displayLabel}</span>`
         : displayLabel;
-      html += `<tr>${imgCell}<td>${seumterType}</td><td id="awardLabelCell_${idx}" style="cursor:pointer;" title="클릭하여 정리명 수정" onclick="editAwardLabel(${idx}, '${displayLabel.replace(/'/g, "\\'")}')"><b>${labelHtml}</b> <span style="font-size:10px;color:#9ca3af;">✏️</span></td><td>${a.office || '-'}</td><td>${a.designer || '-'}</td></tr>`;
+      const officeDisplay = (a.office || '').replace(/\+/g, ', ');
+      const designerDisplay = (a.designer || '').replace(/\+/g, ', ');
+      html += `<tr>${imgCell}<td>${seumterType}</td><td id="awardLabelCell_${idx}" style="cursor:pointer;" title="클릭하여 정리명 수정" onclick="editAwardLabel(${idx}, '${displayLabel.replace(/'/g, "\\'")}')"><b>${labelHtml}</b> <span style="font-size:10px;color:#9ca3af;">✏️</span></td>
+        <td><input value="${officeDisplay.replace(/"/g,'&quot;')}" onchange="updateAwardOffice(${idx},this.value)" placeholder="-" style="border:1px solid #e5e7eb;border-radius:4px;padding:2px 5px;font-size:13px;width:100%;box-sizing:border-box;"></td>
+        <td><input value="${designerDisplay.replace(/"/g,'&quot;')}" onchange="updateAwardDesigner(${idx},this.value)" placeholder="-" style="border:1px solid #e5e7eb;border-radius:4px;padding:2px 5px;font-size:13px;width:100%;box-sizing:border-box;"></td></tr>`;
     });
     html += `</tbody></table>`;
 
@@ -1815,6 +1819,18 @@ function renderSummary(s) {
 
   // 전역에 현재 데이터 저장 (이미지 다운로드용)
   window._currentData = s;
+}
+
+// ───── 수상작 설계사무소·설계자 수정 ─────
+function updateAwardOffice(idx, val) {
+  const data = window._currentData;
+  if (!data || !data.awards[idx]) return;
+  data.awards[idx].office = val.trim().replace(/\s*,\s*/g, '+');
+}
+function updateAwardDesigner(idx, val) {
+  const data = window._currentData;
+  if (!data || !data.awards[idx]) return;
+  data.awards[idx].designer = val.trim().replace(/\s*,\s*/g, '+');
 }
 
 // ───── 수상작 이미지 삭제/교체 ─────
