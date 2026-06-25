@@ -1463,7 +1463,7 @@ function parseJudgesText(text) {
         const typeStr = parts[0];
         const name = parts[1];
         const org = parts[2] || '';
-        const type = typeStr.includes('예비') ? '예비' : '외부';
+        const type = typeStr.includes('예비') ? '예비' : '본';
         if (name) judges.push({ type, name, org });
       }
       continue;
