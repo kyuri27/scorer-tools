@@ -1683,6 +1683,18 @@ function toggleJudgeStatusByIdx(idx) {
   renderJudgesTable();
 }
 
+function addJudge() {
+  if (!window._judgesData) window._judgesData = [];
+  window._judgesData.push({ type: '본', name: '', org: '', status: '참석', _origStatus: '참석' });
+  renderJudgesTable();
+  // 새로 추가된 행의 성명 input에 포커스
+  const rows = document.querySelectorAll('#judgesTable tbody tr');
+  if (rows.length) {
+    const lastInput = rows[rows.length - 1].querySelector('input');
+    if (lastInput) { lastInput.focus(); lastInput.select(); }
+  }
+}
+
 function deleteJudge(idx) {
   const judges = window._judgesData;
   if (!judges) return;
@@ -1779,19 +1791,23 @@ function renderSummary(s) {
     return aR - bR;
   });
 
+  // 순서 디버그 로그
+  console.log('[judges order] pdfAttended:', pdfAttended.map(x=>typeof x==='string'?x:x.name));
+  console.log('[judges order] normalizedAttended:', normalizedAttended.map(n=>n.seumterName));
+  console.log('[judges order] final judges:', judges.map(j=>j.name));
+
   // 저장된 편집 상태가 있으면 그대로 사용, 없으면 새로 계산한 순서 사용
   const finalJudges = window._judgesSaved ? window._judgesSaved.map(j => ({...j})) : judges;
   finalJudges.forEach(j => { if (!j._origStatus) j._origStatus = j.status; });
   window._judgesData = finalJudges;
 
-  if (finalJudges.length) {
-    html += `<h4>👥 심사위원 참석 현황 <span style="font-size:11px;font-weight:400;color:#6b7280;">— 드래그·상태·성명·소속 수정 후 저장</span></h4>`;
-    html += `<div id="judgesTableContainer"></div>`;
-    html += `<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
-      <button onclick="saveJudgesState()" style="background:#16a34a;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;">💾 변경사항 저장</button>
-      <button onclick="downloadJudgesTxt()" style="background:#0891b2;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;">👥 심사위원 텍스트 다운로드</button>
-    </div>`;
-  }
+  html += `<h4>👥 심사위원 참석 현황 <span style="font-size:11px;font-weight:400;color:#6b7280;">— 드래그·상태·성명·소속 수정 후 저장</span></h4>`;
+  html += `<div id="judgesTableContainer"></div>`;
+  html += `<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+    <button onclick="addJudge()" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;">＋ 심사위원 추가</button>
+    <button onclick="saveJudgesState()" style="background:#16a34a;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;">💾 변경사항 저장</button>
+    <button onclick="downloadJudgesTxt()" style="background:#0891b2;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;">👥 심사위원 텍스트 다운로드</button>
+  </div>`;
 
   // 저장된 수상작 편집 복원
   if (window._awardsSaved && s.awards) {
