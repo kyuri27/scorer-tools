@@ -791,16 +791,16 @@ function resetAll() {
   if (btn) { btn.disabled = false; btn.innerHTML = '🚀 분석 시작'; }
 
   // 세움터 데이터 초기화
-  window._seumterData = null;
+  seumterData = null;          // module-level 변수 (중요)
   window._currentData = null;
   document.getElementById('seumterJsonInput').value = '';
   document.getElementById('seumterStatus').innerHTML = '';
-  document.getElementById('manualNoticeDate').value = '';
-  document.getElementById('manualAnnounceDate').value = '';
-  const agencyEl = document.getElementById('manualAgency');
-  if (agencyEl) agencyEl.value = '';
-  const compIdEl = document.getElementById('competitionIdInput');
-  if (compIdEl) compIdEl.value = '';
+
+  // 수동 입력 초기화
+  const manualFields = ['manualCompetitionName','manualJudgesInput','manualAwardsInput','manualNoticeDate','manualAnnounceDate','manualAgency','competitionIdInput'];
+  manualFields.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  const previewFields = ['manualJudgesPreview','manualAwardsPreview','seumterStatus'];
+  previewFields.forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
   _awardsTxtHandle = null;
   window._judgeStatusOverrides = {};
   window._judgesData = [];
