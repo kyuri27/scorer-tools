@@ -2503,22 +2503,25 @@ async function renderDownloads(data) {
   const resultDateStr = formatDateForFile(data.announceDate);
   const resultDatePart = resultDateStr ? `_${resultDateStr}` : '';
 
-  // 공고 파일에서 문서 종류 키워드 추출 (지침서 / 과업지시서 / 공고문)
+  // 문서 종류 키워드 추출 (공고: 지침서/과업지시서/공고문, 결과: 심사의결서/평가사유서 등)
   // 키워드가 있으면 그것을 prefix로, 없으면 기존 방식(첫 '_' 앞)
   const NOTICE_KEYWORDS = ['과업지시서', '지침서', '공고문', '제안서'];
-  function extractNoticePrefix(nameNoExt) {
-    // 괄호 내용 제거: (효자중), (서울), [서식] 같은 태그 처리
+  const RESULT_KEYWORDS = ['심사의결서', '평가사유서', '투표결과', '심사결과', '결과공고', '심사위원명단', '심사표', '평가표', '집계표', '입상작', '당선작'];
+  function extractDocPrefix(nameNoExt, keywords) {
+    // 괄호 내용 제거: (효자중), (서울), (2건) 같은 태그 처리
     const cleaned = nameNoExt.replace(/\([^)]*\)/g, '').trim();
     const seosik = nameNoExt.includes('[서식]') ? '[서식]' : (nameNoExt.includes('서식') ? '[서식]' : '');
     // 공고서 → 공고문으로 통일
     if (cleaned.includes('공고서') || cleaned.includes('공고문')) return seosik + '공고문';
-    for (const kw of NOTICE_KEYWORDS) {
+    for (const kw of keywords) {
       if (cleaned.includes(kw)) return seosik + kw;
     }
     // 키워드 없으면 괄호 제거된 이름 반환 (원본에 괄호가 있었을 때만)
     if (cleaned !== nameNoExt) return (seosik + cleaned.replace(/[+＋]\s*$/, '').trim()) || null;
     return seosik || null;
   }
+  function extractNoticePrefix(nameNoExt) { return extractDocPrefix(nameNoExt, NOTICE_KEYWORDS); }
+  function extractResultPrefix(nameNoExt) { return extractDocPrefix(nameNoExt, RESULT_KEYWORDS); }
 
   // 파일 종류별로 그룹화 (prefix → {files, datePart})
   // prefix 끝의 숫자(1, 2, 3…)는 제거해서 같은 그룹으로 합침
@@ -2531,13 +2534,8 @@ async function renderDownloads(data) {
     for (const f of fileArr) {
       if (f.type !== 'pdf' && f.type !== 'hwp') continue;
       const nameNoExt = f.name.normalize('NFC').trim().replace(/\.(pdf|hwpx?)$/i, '').replace(/\[붙임[^\]]*\]\s*/g, '').trim();
-      let prefix;
-      if (isNotice) {
-        prefix = extractNoticePrefix(nameNoExt)
-          || (nameNoExt.includes('_') ? nameNoExt.split('_')[0] : nameNoExt);
-      } else {
-        prefix = nameNoExt.includes('_') ? nameNoExt.split('_')[0] : nameNoExt;
-      }
+      let prefix = (isNotice ? extractNoticePrefix(nameNoExt) : extractResultPrefix(nameNoExt))
+        || (nameNoExt.includes('_') ? nameNoExt.split('_')[0] : nameNoExt);
       prefix = normalizePrefix(prefix); // 끝 숫자 제거
       if (!groups[prefix]) groups[prefix] = { files: [], datePart };
       groups[prefix].files.push(f);
@@ -2599,9 +2597,9 @@ async function renderDownloads(data) {
       if (f.type !== 'hwp' && f.type !== 'zip') continue;
       const ext = f.name.match(/\.(hwpx?|zip)$/i)?.[0] || (f.type === 'zip' ? '.zip' : '.hwp');
       const nameNoExt = f.name.normalize('NFC').trim().replace(/\.(hwpx?|zip)$/i, '').replace(/\[붙임[^\]]*\]\s*/g, '').trim();
-      const prefix = normalizePrefix(isNotice
-        ? (extractNoticePrefix(nameNoExt) || (nameNoExt.includes('_') ? nameNoExt.split('_')[0] : nameNoExt))
-        : (nameNoExt.includes('_') ? nameNoExt.split('_')[0] : nameNoExt));
+      const prefix = normalizePrefix(
+        (isNotice ? extractNoticePrefix(nameNoExt) : extractResultPrefix(nameNoExt))
+        || (nameNoExt.includes('_') ? nameNoExt.split('_')[0] : nameNoExt));
       const filename = `${prefix}_${compName}${dp}${ext}`;
       const blob = new Blob([f.arrayBuffer], { type: 'application/octet-stream' });
       results.push({ filename, url: URL.createObjectURL(blob), pageCount: null, fileCount: 1, isHwp: true });
