@@ -1852,7 +1852,7 @@ function renderSummary(s) {
         </div>`;
       }
     }
-    html += `<table class="result-table"><thead><tr><th style="width:90px">이미지</th><th>구분</th><th>정리명</th><th>설계사무소</th><th>대표설계자</th></tr></thead><tbody>`;
+    html += `<table class="result-table"><thead><tr><th style="width:90px">이미지</th><th>구분</th><th>정리명</th><th>설계사무소</th><th>대표설계자</th><th style="width:24px"></th></tr></thead><tbody>`;
     const pdfTypeCounts = {};
     awardsToRender.forEach(a => {
       const t = a.awardTypePdf || a.awardTypeSeumter || a.awardType || '';
@@ -1892,13 +1892,15 @@ function renderSummary(s) {
         : displayLabel;
       const officeDisplay = (a.office || '').replace(/\+/g, ', ');
       const designerDisplay = (a.designer || '').replace(/\+/g, ', ');
-      html += `<tr>${imgCell}<td>${seumterType}</td><td id="awardLabelCell_${idx}" style="cursor:pointer;" title="클릭하여 정리명 수정" onclick="editAwardLabel(${idx}, '${displayLabel.replace(/'/g, "\\'")}')"><b>${labelHtml}</b> <span style="font-size:10px;color:#9ca3af;">✏️</span></td>
+      html += `<tr>${imgCell}<td><input value="${(seumterType||'').replace(/"/g,'&quot;')}" onchange="updateAwardType(${idx},this.value)" placeholder="구분" style="border:1px solid #e5e7eb;border-radius:4px;padding:2px 5px;font-size:13px;width:70px;box-sizing:border-box;"></td><td id="awardLabelCell_${idx}" style="cursor:pointer;" title="클릭하여 정리명 수정" onclick="editAwardLabel(${idx}, '${displayLabel.replace(/'/g, "\\'")}')"><b>${labelHtml}</b> <span style="font-size:10px;color:#9ca3af;">✏️</span></td>
         <td><input value="${officeDisplay.replace(/"/g,'&quot;')}" onchange="updateAwardOffice(${idx},this.value)" placeholder="-" style="border:1px solid #e5e7eb;border-radius:4px;padding:2px 5px;font-size:13px;width:100%;box-sizing:border-box;"></td>
-        <td><input value="${designerDisplay.replace(/"/g,'&quot;')}" onchange="updateAwardDesigner(${idx},this.value)" placeholder="-" style="border:1px solid #e5e7eb;border-radius:4px;padding:2px 5px;font-size:13px;width:100%;box-sizing:border-box;"></td></tr>`;
+        <td><input value="${designerDisplay.replace(/"/g,'&quot;')}" onchange="updateAwardDesigner(${idx},this.value)" placeholder="-" style="border:1px solid #e5e7eb;border-radius:4px;padding:2px 5px;font-size:13px;width:100%;box-sizing:border-box;"></td>
+        <td><button onclick="deleteAward(${idx})" style="background:none;border:none;padding:0;cursor:pointer;color:#d1d5db;font-size:13px;" title="삭제">✕</button></td></tr>`;
     });
     html += `</tbody></table>`;
 
     html += `<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <button onclick="addAward()" style="background:#f3f4f6;color:#374151;border:1px solid #d1d5db;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;">＋ 수상작 추가</button>
       <button onclick="saveAwardsState()" style="background:#16a34a;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;">💾 변경사항 저장</button>
       ${hasImages ? `<button id="imgZipBtn" onclick="downloadAwardImagesZip()" style="background:#10b981;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;">📦 수상작 이미지 ZIP 다운로드</button>` : ''}
       <button onclick="downloadAwardsTxt()" style="background:#6366f1;color:#fff;border:none;border-radius:6px;padding:8px 16px;font-size:13px;cursor:pointer;">📄 수상작 목록 텍스트 다운로드</button>
@@ -1911,6 +1913,41 @@ function renderSummary(s) {
 
   // 전역에 현재 데이터 저장 (이미지 다운로드용)
   window._currentData = s;
+}
+
+function updateAwardType(idx, val) {
+  const data = window._currentData;
+  if (!data || !data.awards[idx]) return;
+  const v = val.trim();
+  data.awards[idx].awardType = v;
+  delete data.awards[idx].awardTypeSeumter;
+  delete data.awards[idx].awardTypePdf;
+}
+
+function deleteAward(idx) {
+  const data = window._currentData;
+  if (!data || !data.awards || !data.awards[idx]) return;
+  data.awards.splice(idx, 1);
+  // _awardLabelOverrides 인덱스 시프트
+  if (window._awardLabelOverrides) {
+    const shifted = {};
+    Object.keys(window._awardLabelOverrides).forEach(k => {
+      const i = parseInt(k, 10);
+      if (i < idx) shifted[i] = window._awardLabelOverrides[k];
+      else if (i > idx) shifted[i - 1] = window._awardLabelOverrides[k];
+      // i === idx: 삭제된 항목의 override는 버림
+    });
+    window._awardLabelOverrides = shifted;
+  }
+  renderSummary(data);
+}
+
+function addAward() {
+  const data = window._currentData;
+  if (!data) return;
+  if (!data.awards) data.awards = [];
+  data.awards.push({ awardType: '', office: '', designer: '', num: '' });
+  renderSummary(data);
 }
 
 function saveAwardsState() {
