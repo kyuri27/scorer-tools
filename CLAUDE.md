@@ -8,17 +8,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **GitHub 저장소**: `https://github.com/kyuri27/scorer-tools.git`
 - **배포 URL**: `https://kyuri27.github.io/scorer-tools/공모결과정리도구.html`
-- **파일 경로**: `/Volumes/T7/스코어러/데이터/공모정리도구/공모결과정리도구.html`
-- **git 저장소 루트**: `/Volumes/T7/스코어러/데이터/공모정리도구/`
+- **로컬 작업 경로**: `/Users/kyurikim/Desktop/바이브코딩/스코어러 데이터/scorer-tools/`
 
 커밋/푸시:
 ```bash
-cd "/Volumes/T7/스코어러/데이터/공모정리도구"
-git add 공모결과정리도구.html
+cd "/Users/kyurikim/Desktop/바이브코딩/스코어러 데이터/scorer-tools"
+git add 공모결과정리도구.html CLAUDE.md
 git commit -m "..."
 git push origin main
 ```
-(Windows 컴퓨터에서도 별도로 푸시할 수 있어 diverge 발생 시 `git pull --rebase` 필요)
+(push 시 CLAUDE.md도 반드시 함께 업데이트·커밋)
 
 ## 라이브러리 (모두 인라인 번들)
 
