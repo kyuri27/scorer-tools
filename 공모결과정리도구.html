@@ -1894,7 +1894,9 @@ function renderSummary(s) {
         : displayLabel;
       const officeDisplay = (a.office || '').replace(/\+/g, ', ');
       const designerDisplay = (a.designer || '').replace(/\+/g, ', ');
-      html += `<tr>${imgCell}<td><input value="${(seumterType||'').replace(/"/g,'&quot;')}" onchange="updateAwardType(${idx},this.value)" placeholder="구분" style="border:1px solid #e5e7eb;border-radius:4px;padding:2px 5px;font-size:13px;width:70px;box-sizing:border-box;"></td><td id="awardLabelCell_${idx}" style="cursor:pointer;" title="클릭하여 정리명 수정" onclick="editAwardLabel(${idx}, '${displayLabel.replace(/'/g, "\\'")}')"><b>${labelHtml}</b> <span style="font-size:10px;color:#9ca3af;">✏️</span></td>
+      const labelInputStyle = `border:1px solid #e5e7eb;border-radius:4px;padding:2px 5px;font-size:13px;width:100%;box-sizing:border-box;${(!a.num && !manualAwards && window._awardLabelOverrides[idx] === undefined) ? 'color:#d97706;' : ''}`;
+      html += `<tr>${imgCell}<td><input value="${(seumterType||'').replace(/"/g,'&quot;')}" onchange="updateAwardType(${idx},this.value)" placeholder="구분" style="border:1px solid #e5e7eb;border-radius:4px;padding:2px 5px;font-size:13px;width:70px;box-sizing:border-box;"></td>
+        <td><input value="${displayLabel.replace(/"/g,'&quot;')}" onchange="updateAwardLabel(${idx},this.value)" placeholder="정리명" style="${labelInputStyle}"></td>
         <td><input value="${officeDisplay.replace(/"/g,'&quot;')}" onchange="updateAwardOffice(${idx},this.value)" placeholder="-" style="border:1px solid #e5e7eb;border-radius:4px;padding:2px 5px;font-size:13px;width:100%;box-sizing:border-box;"></td>
         <td><input value="${designerDisplay.replace(/"/g,'&quot;')}" onchange="updateAwardDesigner(${idx},this.value)" placeholder="-" style="border:1px solid #e5e7eb;border-radius:4px;padding:2px 5px;font-size:13px;width:100%;box-sizing:border-box;"></td>
         <td><button onclick="deleteAward(${idx})" style="background:none;border:none;padding:0;cursor:pointer;color:#d1d5db;font-size:13px;" title="삭제">✕</button></td></tr>`;
@@ -2009,7 +2011,15 @@ function replaceAwardImage(idx) {
   input.click();
 }
 
-// ───── 수상작 정리명 인라인 편집 ─────
+function updateAwardLabel(idx, val) {
+  if (!window._awardLabelOverrides) window._awardLabelOverrides = {};
+  window._awardLabelOverrides[idx] = val.trim();
+  if (window._awardsToRender && window._awardsToRender[idx]) {
+    window._awardsToRender[idx].customLabel = val.trim();
+  }
+}
+
+// ───── 수상작 정리명 인라인 편집 (레거시, 미사용) ─────
 function editAwardLabel(idx, currentLabel) {
   const cell = document.getElementById(`awardLabelCell_${idx}`);
   if (!cell) return;
