@@ -301,7 +301,7 @@ function checkPw() {
           <div class="hint" style="margin-top:2px; font-size:12px;">공고문, 설계지침서 등</div>
           <label for="fileInputNotice" style="display:inline-block; margin-top:8px; background:#2563eb; color:white; padding:6px 14px; border-radius:6px; cursor:pointer; font-size:12px; font-weight:500;">📁 파일 선택</label>
         </div>
-        <input type="file" id="fileInputNotice" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.hwp,.hwpx,.zip" style="position:absolute; left:-9999px; opacity:0;" onchange="handleFiles(event.target.files, 'notice')">
+        <input type="file" id="fileInputNotice" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.hwp,.hwpx,.zip,.xlsx,.xls" style="position:absolute; left:-9999px; opacity:0;" onchange="handleFiles(event.target.files, 'notice')">
         <div id="noticeFileList"></div>
       </div>
       <div>
@@ -312,7 +312,7 @@ function checkPw() {
           <div class="hint" style="margin-top:2px; font-size:12px;">심사결과, 투표결과 등 PDF</div>
           <label for="fileInputResult" style="display:inline-block; margin-top:8px; background:#2563eb; color:white; padding:6px 14px; border-radius:6px; cursor:pointer; font-size:12px; font-weight:500;">📁 파일 선택</label>
         </div>
-        <input type="file" id="fileInputResult" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.hwp,.hwpx,.zip" style="position:absolute; left:-9999px; opacity:0;" onchange="handleFiles(event.target.files, 'result')">
+        <input type="file" id="fileInputResult" multiple accept=".pdf,.png,.jpg,.jpeg,.webp,.hwp,.hwpx,.zip,.xlsx,.xls" style="position:absolute; left:-9999px; opacity:0;" onchange="handleFiles(event.target.files, 'result')">
         <div id="resultFileList"></div>
       </div>
     </div>
@@ -513,6 +513,8 @@ async function handleFiles(files, target = 'result') {
       arr.push({ name: file.name, arrayBuffer: buf, type: 'hwp', pageCount: null, mimeType: null });
     } else if (lower.endsWith('.zip')) {
       arr.push({ name: file.name, arrayBuffer: buf, type: 'zip', pageCount: null, mimeType: 'application/zip' });
+    } else if (/\.xlsx?$/i.test(lower)) {
+      arr.push({ name: file.name, arrayBuffer: buf, type: 'excel', pageCount: null, mimeType: null });
     }
   }
   renderFileList('notice');
@@ -527,8 +529,8 @@ function renderFileList(target) {
   if (arr.length === 0) { div.innerHTML = ''; return; }
   div.innerHTML = arr.map((f, i) => `
     <div class="file-item">
-      <span>${f.type === 'pdf' ? '📄' : f.type === 'hwp' ? '📝' : f.type === 'zip' ? '🗜️' : '🖼️'} ${f.name}
-        <span class="file-type">${f.type === 'pdf' ? f.pageCount + 'p' : f.type === 'hwp' ? 'HWP' : f.type === 'zip' ? 'ZIP' : '이미지'}</span>
+      <span>${f.type === 'pdf' ? '📄' : f.type === 'hwp' ? '📝' : f.type === 'zip' ? '🗜️' : f.type === 'excel' ? '📊' : '🖼️'} ${f.name}
+        <span class="file-type">${f.type === 'pdf' ? f.pageCount + 'p' : f.type === 'hwp' ? 'HWP' : f.type === 'zip' ? 'ZIP' : f.type === 'excel' ? 'EXCEL' : '이미지'}</span>
       </span>
       <button class="danger" onclick="removeFile(${i}, '${target}')">✕</button>
     </div>
@@ -853,8 +855,8 @@ async function runAnalysis() {
       // 파일별 진행률: 5% ~ 28% 사이를 균등 분배
       const filePct = 5 + ((fi + 0.5) / resultFiles.length) * 23;
       setProgress(filePct, `📄 인코딩 중 (${fi + 1}/${resultFiles.length}): ${f.name}`);
-      if (f.type === 'hwp') {
-        logProgress(`   • ${f.name} → HWP (Gemini 미지원, 이름 변경만 적용)`);
+      if (f.type === 'hwp' || f.type === 'excel') {
+        logProgress(`   • ${f.name} → ${f.type === 'excel' ? 'EXCEL' : 'HWP'} (Gemini 미지원, 이름 변경만 적용)`);
         continue;  // Gemini에 전송하지 않음
       }
       logProgress(`   • ${f.name} 인코딩...`);
@@ -876,7 +878,7 @@ async function runAnalysis() {
     if (needJudgesFromNotice) {
       logProgress('ℹ️ 심사위원 명단 없음 → 공고 파일에서 추출 시도');
       for (const f of noticeFiles) {
-        if (f.type === 'hwp') { logProgress(`   • ${f.name} → HWP (건너뜀)`); continue; }
+        if (f.type === 'hwp' || f.type === 'excel') { logProgress(`   • ${f.name} → ${f.type === 'excel' ? 'EXCEL' : 'HWP'} (건너뜀)`); continue; }
         logProgress(`   • 공고 파일 인코딩: ${f.name}`);
         parts.push({ inlineData: { mimeType: f.mimeType, data: arrayBufferToBase64(f.arrayBuffer) } });
         parts.push({ text: `[공고 파일: ${f.name}]` });
@@ -2591,12 +2593,12 @@ async function renderDownloads(data) {
     }
   }
 
-  // HWP/ZIP: 합치기 불가 → 파일별 이름 변경 후 개별 다운로드
+  // HWP/ZIP/EXCEL: 합치기 불가 → 파일별 이름 변경 후 개별 다운로드
   for (const [fileArr, dp, isNotice] of [[noticeFiles, noticeDatePart, true], [resultFiles, resultDatePart, false]]) {
     for (const f of fileArr) {
-      if (f.type !== 'hwp' && f.type !== 'zip') continue;
-      const ext = f.name.match(/\.(hwpx?|zip)$/i)?.[0] || (f.type === 'zip' ? '.zip' : '.hwp');
-      const nameNoExt = f.name.normalize('NFC').trim().replace(/\.(hwpx?|zip)$/i, '').replace(/\[붙임[^\]]*\]\s*/g, '').trim();
+      if (f.type !== 'hwp' && f.type !== 'zip' && f.type !== 'excel') continue;
+      const ext = f.name.match(/\.(hwpx?|zip|xlsx?)$/i)?.[0] || (f.type === 'zip' ? '.zip' : f.type === 'excel' ? '.xlsx' : '.hwp');
+      const nameNoExt = f.name.normalize('NFC').trim().replace(/\.(hwpx?|zip|xlsx?)$/i, '').replace(/\[붙임[^\]]*\]\s*/g, '').trim();
       const prefix = normalizePrefix(
         (isNotice ? extractNoticePrefix(nameNoExt) : extractResultPrefix(nameNoExt))
         || (nameNoExt.includes('_') ? nameNoExt.split('_')[0] : nameNoExt));
