@@ -2510,9 +2510,12 @@ function findFileByName(fileName) {
 
 async function renderDownloads(data) {
   const compName = cleanCompetitionName(getCompetitionName(data) || '');
-  const noticeDateStr = formatDateForFile(data.noticeDate);
+  // 수동 입력 날짜가 있으면 우선, 없으면 data에서 읽음 (getCompetitionName과 동일한 패턴)
+  const manualNotice   = parseDateInput(document.getElementById('manualNoticeDate')?.value);
+  const manualAnnounce = parseDateInput(document.getElementById('manualAnnounceDate')?.value);
+  const noticeDateStr  = formatDateForFile(manualNotice || data.noticeDate);
   const noticeDatePart = noticeDateStr ? `_${noticeDateStr}` : '';
-  const resultDateStr = formatDateForFile(data.announceDate);
+  const resultDateStr  = formatDateForFile(manualAnnounce || data.announceDate);
   const resultDatePart = resultDateStr ? `_${resultDateStr}` : '';
 
   // 문서 종류 키워드 추출 (공고: 지침서/과업지시서/공고문, 결과: 심사의결서/평가사유서 등)
