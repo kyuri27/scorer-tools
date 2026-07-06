@@ -2622,6 +2622,32 @@ async function renderDownloads(data) {
   }
 
   // 결과 파일 내 이미지 → 수상작에 매핑해 imgBase64 설정 + 파일명 변경 + 수상작 테이블 갱신
+  // 파일명 패턴: {awardType}{rank?}_{num}.ext (예: 가작1_18.jpg, 당선작_3.jpg)
+  function parseAwardFromFilename(nameNoExt) {
+    const m = nameNoExt.match(/^([가-힣]+?)(\d+)?_(\d+)$/);
+    if (!m) return null;
+    return { awardType: m[1], pdfRank: m[2] ? parseInt(m[2]) : null, num: m[3] };
+  }
+
+  // awards가 없을 때 이미지 파일명으로 수상작 선제 생성
+  const _imgFiles = resultFiles.filter(f => f.type === 'image');
+  if ((!data.awards || data.awards.length === 0) && _imgFiles.length > 0) {
+    const fromFilenames = _imgFiles.map(f => {
+      const nameNoExt = f.name.normalize('NFC').trim().replace(/\.(png|jpe?g|webp)$/i, '').replace(/\s+/g, '');
+      return parseAwardFromFilename(nameNoExt);
+    }).filter(Boolean);
+    if (fromFilenames.length > 0) {
+      if (!data.awards) data.awards = [];
+      fromFilenames.forEach(p => data.awards.push({
+        awardType: p.awardType, awardTypePdf: p.awardType,
+        pdfRank: p.pdfRank, num: p.num, office: '', designer: '',
+        _fromFilename: true,
+      }));
+      logProgress(`📁 이미지 파일명에서 수상작 ${fromFilenames.length}건 자동 생성`);
+      renderSummary(data);
+    }
+  }
+
   let imagesAddedToAwards = false;
   if (data.awards && data.awards.length > 0) {
     const typeCounts = {};
@@ -2658,6 +2684,21 @@ async function renderDownloads(data) {
       // 2차: 이름 매핑 실패 시 이미지 없는 수상작에 순서대로 매핑
       if (!bestAward) {
         bestAward = data.awards.find(a => !usedAwards.has(a) && !a.imgBase64 && !a.imgSrc) || null;
+      }
+
+      // 3차: 파일명 패턴으로 파싱해 새 수상작 생성
+      if (!bestAward) {
+        const parsed = parseAwardFromFilename(nameNoExt);
+        if (parsed) {
+          const newAward = {
+            awardType: parsed.awardType, awardTypePdf: parsed.awardType,
+            pdfRank: parsed.pdfRank, num: parsed.num, office: '', designer: '',
+            _fromFilename: true,
+          };
+          data.awards.push(newAward);
+          bestAward = newAward;
+          logProgress(`   • 파일명 파싱 → ${parsed.awardType}${parsed.pdfRank||''}_${parsed.num}`);
+        }
       }
 
       if (bestAward) {
