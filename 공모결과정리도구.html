@@ -1701,7 +1701,7 @@ function renderSummary(s) {
   // PDF 이름을 세움터 이름으로 정규화
   const normalizedAttended = normalizePdfNames(pdfAttended, seumterJudges);
 
-  const hasResultFiles = resultFiles.length > 0;
+  const hasResultFiles = resultFiles.some(f => f.type === 'pdf' || f.type === 'image');
   const judges = [];
   const addedSeumterNames = new Set();
 
