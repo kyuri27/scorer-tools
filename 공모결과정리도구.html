@@ -149,60 +149,6 @@
 </head>
 <body>
 
-<!-- ── 비밀번호 잠금 화면 ── -->
-<div id="pwLock" style="
-  position:fixed; inset:0; z-index:9999;
-  background:#f9fafb;
-  display:flex; flex-direction:column;
-  align-items:center; justify-content:center; gap:16px;
-">
-  <div style="font-size:22px; font-weight:700; color:#111827;">🔒 공모 정리 도구</div>
-  <div style="font-size:14px; color:#6b7280;">비밀번호를 입력하세요</div>
-  <input id="pwInput" type="password" maxlength="20"
-    placeholder="비밀번호"
-    style="
-      width:200px; padding:10px 14px; font-size:16px; text-align:center;
-      border:1.5px solid #d1d5db; border-radius:8px; outline:none;
-      transition:border-color .15s;
-    "
-    onkeydown="if(event.key==='Enter') checkPw()"
-    onfocus="this.style.borderColor='#6366f1'"
-    onblur="this.style.borderColor='#d1d5db'"
-  />
-  <button onclick="checkPw()" style="
-    padding:10px 28px; background:#6366f1; color:#fff;
-    border:none; border-radius:8px; font-size:15px; font-weight:600;
-    cursor:pointer;
-  ">확인</button>
-  <div id="pwError" style="font-size:13px; color:#ef4444; min-height:18px;"></div>
-</div>
-
-<script>
-(function () {
-  if (sessionStorage.getItem('pw_ok') === '1') {
-    document.getElementById('pwLock').style.display = 'none';
-  }
-})();
-
-function checkPw() {
-  const val = document.getElementById('pwInput').value;
-  if (val === '2134') {
-    sessionStorage.setItem('pw_ok', '1');
-    document.getElementById('pwLock').style.display = 'none';
-  } else {
-    const err = document.getElementById('pwError');
-    err.textContent = '비밀번호가 틀렸습니다.';
-    const inp = document.getElementById('pwInput');
-    inp.value = '';
-    inp.style.borderColor = '#ef4444';
-    inp.focus();
-    setTimeout(() => {
-      err.textContent = '';
-      inp.style.borderColor = '#d1d5db';
-    }, 2000);
-  }
-}
-</script>
 <div class="container">
   <h1>📋 공모 정리 도구</h1>
   <p class="subtitle">Google Gemini API로 이미지·PDF를 모두 한 번에 자동 분석합니다.</p>
