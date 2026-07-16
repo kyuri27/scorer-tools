@@ -1483,6 +1483,13 @@ function getCompetitionName(data) {
   return data?.competitionName || '';
 }
 
+// 수동 입력값은 cleanCompetitionName 적용 안 함
+function getCleanCompetitionName(data) {
+  const manual = document.getElementById('manualCompetitionName')?.value?.trim();
+  if (manual) return manual;
+  return cleanCompetitionName(data?.competitionName || '');
+}
+
 function cleanCompetitionName(raw) {
   if (!raw) return raw;
 
@@ -1680,9 +1687,9 @@ function saveJudgesState() {
 
 // ───── 결과 렌더링 ─────
 function renderSummary(s) {
-  const baseName = getCompetitionName(s) || s.competitionName || '';
+  const baseName = getCleanCompetitionName(s) || s.competitionName || '';
   const rawName = s.buildType ? `${baseName}(${s.buildType})` : baseName;
-  const fullName = cleanCompetitionName(rawName);
+  const fullName = rawName;
   let html = `<h3 style="margin-top:0;">${fullName}</h3>`;
 
   html += `<h4>📋 공모 개요</h4><ul style="font-size:13px; margin-top:0;">`;
@@ -2296,7 +2303,7 @@ async function downloadAwardImagesZip() {
   const data = window._currentData;
   if (!data || !data.awards) return;
 
-  const compName = cleanCompetitionName(getCompetitionName(data) || '공모').replace(/\s+/g, '_');
+  const compName = getCleanCompetitionName(data).replace(/\s+/g, '_') || '공모';
   const dateStr = formatDateForFile(data.announceDate);
   const datePart = dateStr ? `_${dateStr}` : '';
 
@@ -2455,7 +2462,7 @@ function findFileByName(fileName) {
 }
 
 async function renderDownloads(data) {
-  const compName = cleanCompetitionName(getCompetitionName(data) || '');
+  const compName = getCleanCompetitionName(data);
   // 수동 입력 날짜가 있으면 우선, 없으면 data에서 읽음 (getCompetitionName과 동일한 패턴)
   const manualNotice   = parseDateInput(document.getElementById('manualNoticeDate')?.value);
   const manualAnnounce = parseDateInput(document.getElementById('manualAnnounceDate')?.value);
@@ -2727,7 +2734,7 @@ async function renderDownloads(data) {
         const buf = await resp.arrayBuffer();
         return { name: r.filename, data: new Uint8Array(buf) };
       }));
-      const compName = cleanCompetitionName(getCompetitionName(data) || '공모').replace(/\s+/g, '_');
+      const compName = getCleanCompetitionName(data).replace(/\s+/g, '_') || '공모';
       const zipBytes = buildZip(zipFiles);
       const blob = new Blob([zipBytes], { type: 'application/zip' });
       const url = URL.createObjectURL(blob);

@@ -133,6 +133,11 @@ const RESULT_KEYWORDS = ['심사의결서', '평가사유서', '투표결과', '
 - 제거 suffix: `'건축설계용역 일반', '건축설계용역', '설계용역', '용역', '건립', '설계공모', '제안공모', '현상공모', '지명공모', '설계경기', '공모', '사업'`
 - 지역명 자동 추출 (`extractRegionPrefix`): `전라남도 → 전남` 등 17개 광역시도 매핑
 
+**`getCleanCompetitionName(data)`**
+- `manualCompetitionName` 수동 입력 시 `cleanCompetitionName` 적용 안 함 (입력값 그대로 반환)
+- JSON 공모명에만 `cleanCompetitionName` 적용
+- `renderSummary`, `renderDownloads`, `downloadAwardsTxt`, ZIP 다운로드 등 공모명 사용하는 모든 곳에서 `cleanCompetitionName(getCompetitionName(...))` 대신 이 함수 사용
+
 **`fuzzyMatchName(seumterName, pdfName)`**
 - 심사위원 이름 매칭: 양쪽 모두 2글자 이상이고 두 번째 글자까지 같으면 동일인으로 처리
 
