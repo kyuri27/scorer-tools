@@ -227,6 +227,10 @@
       </div>
     </div>
     <div style="margin-top:12px; padding-top:12px; border-top:1px solid #e0f2fe;">
+      <div style="font-size:12px; font-weight:600; color:#374151; margin-bottom:8px;">🔗 심사결과 확인 URL <span style="font-weight:400; color:#6b7280;">— JSON보다 우선 적용</span></div>
+      <input type="url" id="manualResultNoticeUrl" placeholder="https://www.eais.go.kr/..." style="font-size:12px; padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; width:100%; box-sizing:border-box;">
+    </div>
+    <div style="margin-top:12px; padding-top:12px; border-top:1px solid #e0f2fe;">
       <div style="font-size:12px; font-weight:600; color:#374151; margin-bottom:8px;">🔗 스코어러 - admin 자동 입력 연동 <span style="font-weight:400; color:#6b7280;">— scorer.co.kr 공모전 ID</span></div>
       <label style="font-size:12px; color:#374151; display:flex; flex-direction:column; gap:4px; max-width:200px;">
         공모전 ID
@@ -745,7 +749,7 @@ function resetAll() {
   document.getElementById('seumterStatus').innerHTML = '';
 
   // 수동 입력 초기화
-  const manualFields = ['manualCompetitionName','manualJudgesInput','manualAwardsInput','manualNoticeDate','manualAnnounceDate','manualAgency','competitionIdInput'];
+  const manualFields = ['manualCompetitionName','manualJudgesInput','manualAwardsInput','manualNoticeDate','manualAnnounceDate','manualAgency','manualResultNoticeUrl','competitionIdInput'];
   manualFields.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   const previewFields = ['manualJudgesPreview','manualAwardsPreview','seumterStatus'];
   previewFields.forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
@@ -1697,7 +1701,8 @@ function renderSummary(s) {
   if (s.agency) html += `<li><b>공고기관</b>: ${s.agency}</li>`;
   if (s.noticeDate) html += `<li><b>공고일시</b>: ${s.noticeDate}</li>`;
   if (s.announceDate) html += `<li><b>당선작 발표일</b>: ${s.announceDate}</li>`;
-  if (s.resultNoticeUrl) html += `<li><b>심사결과 공고</b>: <a href="${s.resultNoticeUrl}" target="_blank" style="color:#0891b2; word-break:break-all;">${s.resultNoticeUrl}</a></li>`;
+  const _resultUrl = document.getElementById('manualResultNoticeUrl')?.value?.trim() || s.resultNoticeUrl || '';
+  if (_resultUrl) html += `<li><b>심사결과 공고</b>: <a href="${_resultUrl}" target="_blank" style="color:#0891b2; word-break:break-all;">${_resultUrl}</a></li>`;
   html += `</ul>`;
 
   // 이름 없거나 '미지정'인 placeholder 제거
@@ -2225,7 +2230,7 @@ async function runAwardInput() {
       body: JSON.stringify({
         competition_id: competitionId,
         awards_txt: buildAwardsTxtContent(data),
-        result_url: data.resultNoticeUrl || '',
+        result_url: document.getElementById('manualResultNoticeUrl')?.value?.trim() || data.resultNoticeUrl || '',
         images,
         upload_files: uploadFiles,
         judges,
