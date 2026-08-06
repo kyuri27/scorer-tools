@@ -2519,9 +2519,21 @@ async function renderDownloads(data) {
   // 결과 파일만 그룹핑 (같은 접두사끼리 병합) — 공고 파일은 개별 이름 변경만
   const resultGroups = groupFiles(resultFiles, resultDatePart, false);
 
-  // 같은 그룹 내 파일들은 파일명 알파벳 순으로 정렬
+  // 같은 그룹 내 파일들은 병합 순서 우선순위 → 파일명 순으로 정렬
+  // 파일명에 포함된 키워드에 따라 당선작 > 결선작 > 입상작 순 보장
+  const MERGE_ORDER = ['당선작', '결선작', '입선작', '입상작'];
+  function mergeRank(filename) {
+    const n = filename.normalize('NFC');
+    for (let i = 0; i < MERGE_ORDER.length; i++) {
+      if (n.includes(MERGE_ORDER[i])) return i;
+    }
+    return MERGE_ORDER.length;
+  }
   for (const g of Object.values(resultGroups)) {
-    g.files.sort((a, b) => a.name.localeCompare(b.name, 'ko'));
+    g.files.sort((a, b) => {
+      const diff = mergeRank(a.name) - mergeRank(b.name);
+      return diff !== 0 ? diff : a.name.localeCompare(b.name, 'ko');
+    });
   }
 
   const warnings = [];
