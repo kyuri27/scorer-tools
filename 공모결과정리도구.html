@@ -2483,11 +2483,12 @@ async function renderDownloads(data) {
   function extractDocPrefix(nameNoExt, keywords) {
     // 괄호 내용 제거: (효자중), (서울), (2건) 같은 태그 처리
     const cleaned = nameNoExt.replace(/\([^)]*\)/g, '').trim();
+    const cleanedNoSpace = cleaned.replace(/\s+/g, ''); // 키워드 매칭용 (공백 무시)
     const seosik = nameNoExt.includes('[서식]') ? '[서식]' : (nameNoExt.includes('서식') ? '[서식]' : '');
     // 공고서 → 공고문으로 통일
-    if (cleaned.includes('공고서') || cleaned.includes('공고문')) return seosik + '공고문';
+    if (cleanedNoSpace.includes('공고서') || cleanedNoSpace.includes('공고문')) return seosik + '공고문';
     for (const kw of keywords) {
-      if (cleaned.includes(kw)) return seosik + kw;
+      if (cleanedNoSpace.includes(kw)) return seosik + kw;
     }
     // 키워드 없으면 괄호 제거된 이름 반환 (원본에 괄호가 있었을 때만)
     if (cleaned !== nameNoExt) return (seosik + cleaned.replace(/[+＋]\s*$/, '').trim()) || null;
