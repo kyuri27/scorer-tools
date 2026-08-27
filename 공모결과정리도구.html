@@ -374,6 +374,8 @@ function applySeumterJSON() {
     }
     const data = JSON.parse(raw);
     seumterData = cleanNamesInData(data);
+    // 적용 후 textarea 비우기 — base64 이미지 포함 시 수MB가 돼 페이지 전체가 느려짐
+    document.getElementById('seumterJsonInput').value = '';
     const name = cleanCompetitionName(data.competitionName || '');
     const build = data.buildType ? `(${data.buildType})` : '';
     const judgeCount = (data.judges_planned || []).length;
