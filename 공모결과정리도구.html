@@ -2607,7 +2607,7 @@ async function renderDownloads(data) {
   // 결과 파일 내 이미지 → 수상작에 매핑해 imgBase64 설정 + 파일명 변경 + 수상작 테이블 갱신
   // 파일명 패턴: {awardType}{rank?}_{num}.ext (예: 가작1_18.jpg, 당선작_3.jpg)
   function parseAwardFromFilename(nameNoExt) {
-    const m = nameNoExt.match(/^([가-힣]+?)(\d+)?_(\d+)$/);
+    const m = nameNoExt.match(/^([가-힣\d]+?)(\d+)?_(\d+)$/);
     if (!m) return null;
     return { awardType: m[1], pdfRank: m[2] ? parseInt(m[2]) : null, num: m[3] };
   }
