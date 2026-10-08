@@ -60,6 +60,7 @@ noticeFiles / resultFiles    — 업로드된 파일 배열 (ArrayBuffer 포함)
 **`applySeumterJSON()`**
 - 세움터 JSON 파싱 → `cleanNamesInData()` 적용 → `seumterData` 저장
 - 공모명을 `manualCompetitionName` 입력란에 자동 채움
+- 적용 성공 후 `seumterJsonInput` textarea를 즉시 비움 — base64 이미지 포함 시 수MB가 돼 페이지 전체가 느려지는 문제 방지
 
 **`runAnalysis()`**
 - Gemini 분석 실행. `seumterData`만 있고 파일 없어도 동작 (이름 변경만)
@@ -101,10 +102,10 @@ function normalizeJudgeType(type) {
 
 **공동응모**: `office` 필드에 `+` 구분자로 연결 (예: `"건축사사무소A+건축사사무소B"`). Gemini 프롬프트에 "같은 행에 업체명이 두 줄 이상이면 전부 `+`로 연결, 첫 줄만 가져오지 말 것" 명시.
 
-**이미지 파일명 자동 파싱**: `{awardType}{rank?}_{num}.ext` 패턴 인식 (예: `가작1_18.jpg`, `당선작_3.jpg`). awards가 없거나 매칭 실패 시 파일명으로 자동 생성.
+**이미지 파일명 자동 파싱**: `{awardType}{rank?}_{num}.ext` 패턴 인식 (예: `가작1_18.jpg`, `당선작_3.jpg`, `2등작_22.jpg`). awards가 없거나 매칭 실패 시 파일명으로 자동 생성.
 ```javascript
 function parseAwardFromFilename(nameNoExt) {
-  const m = nameNoExt.match(/^([가-힣]+?)(\d+)?_(\d+)$/);
+  const m = nameNoExt.match(/^([가-힣\d]+?)(\d+)?_(\d+)$/);  // \d 포함 — 2등작·3등작 등 숫자 시작 타입 지원
   if (!m) return null;
   return { awardType: m[1], pdfRank: m[2] ? parseInt(m[2]) : null, num: m[3] };
 }
@@ -119,8 +120,14 @@ const NOTICE_KEYWORDS = ['과업지시서', '지침서', '공고문', '제안서
 const RESULT_KEYWORDS = ['심사의결서', '평가사유서', '투표결과', '심사결과', '결과공고', '심사위원명단', '심사표', '평가표', '집계표', '입상작', '당선작'];
 ```
 - `extractNoticePrefix` / `extractResultPrefix` → 키워드 매칭 후 접두사 추출
+- 키워드 매칭은 **공백 제거 후 비교** (`cleanedNoSpace`) — "결선작 선정투표 결과"처럼 공백이 있어도 '투표결과' 키워드로 그룹화됨
 - `[붙임N]` 패턴 파일명에서 제거
 - 날짜 입력: `manualNoticeDate`/`manualAnnounceDate` DOM 직접 읽음 (JSON보다 항상 우선)
+
+**결과 파일 병합 순서**: 같은 그룹 내에서 `당선작 > 결선작 > 입선작 > 입상작` 우선순위 후 가나다순
+```javascript
+const MERGE_ORDER = ['당선작', '결선작', '입선작', '입상작'];
+```
 
 ### 데이터 정제 규칙
 
@@ -167,10 +174,35 @@ const RESULT_KEYWORDS = ['심사의결서', '평가사유서', '투표결과', '
 - 미지정 심사위원(`name.includes('미지정')`)은 렌더링 시 자동 제외
 - `judges_attended`는 `{name, org}` 객체 배열 (문자열 아님)
 
+### 수동 입력 필드 목록 (2번 섹션)
+
+| 필드 ID | 설명 | 우선순위 |
+|---------|------|---------|
+| `manualCompetitionName` | 공모명 직접 입력 | JSON보다 우선, `cleanCompetitionName` 미적용 |
+| `manualJudgesInput` | 심사위원 직접 입력 | JSON보다 우선 |
+| `manualAwardsInput` | 수상작 직접 입력 | JSON보다 우선 |
+| `manualAgency` | 발주처 직접 입력 | JSON보다 우선 |
+| `manualNoticeDate` | 공고일시 (YYYY.MM.DD) | JSON보다 우선, 파일명에 반영 |
+| `manualAnnounceDate` | 당선작 발표일 (YYYY.MM.DD) | JSON보다 우선, 파일명에 반영 |
+| `manualResultNoticeUrl` | 심사결과 확인 URL | JSON보다 우선, runAwardInput result_url에 반영 |
+| `competitionIdInput` | 스코어러 공모전 ID | scorer.co.kr admin 연동 |
+
+`resetAll()` 시 위 모든 필드 초기화됨 (`manualFields` 배열).
+
+**심사위원 직접 입력 파싱 지원 형식**:
+- `본위원, 이름, 소속` / `외부, 이름, 소속` / `예비위원(순번1), 이름, 소속`
+- `이름: 소속` (콜론 형식) / 탭 구분 형식
+- `예비위원(순번N)` 패턴 — 괄호 내용 있어도 정상 파싱됨
+
 ### 외부 연동
-- **공모 결과 입력하기** (`runAwardInput`): 로컬 HTTP 서버 `localhost:8765`로 수상작 데이터 전송
+- **공모 결과 입력하기** (`runAwardInput`): 로컬 HTTP 서버 `localhost:8765`로 수상작 데이터 전송. `result_url`에 `manualResultNoticeUrl` 우선 적용
 - **공모 정보 입력하기** (`runCompetitionInput`): 같은 포트로 공고 파일 + 공모 정보 전송
 - **세움터 프록시** (`세움터_proxy.js`): `localhost:3456`에서 세움터 API 세션 쿠키 자동 처리
+
+### 알려진 주의사항
+
+- **GitHub Pages 캐시**: 푸시 후 5~10분 지나야 반영. 로컬 파일로 먼저 테스트 권장. 급하면 시크릿 창 사용.
+- **대용량 JSON**: 크롬 확장의 JSON에 base64 이미지 포함 시 수MB. `applySeumterJSON` 성공 시 textarea 자동 비움으로 성능 문제 해결됨.
 
 ### 디버그 로그
 line ~831에 임시 디버그 로그 남아있음:
