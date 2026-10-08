@@ -2480,7 +2480,7 @@ async function renderDownloads(data) {
 
   // 문서 종류 키워드 추출 (공고: 지침서/과업지시서/공고문, 결과: 심사의결서/평가사유서 등)
   // 키워드가 있으면 그것을 prefix로, 없으면 기존 방식(첫 '_' 앞)
-  const NOTICE_KEYWORDS = ['과업지시서', '지침서', '공고문', '제안서'];
+  const NOTICE_KEYWORDS = ['과업지시서', '과업설명서', '지침서', '공고문', '제안서'];
   const RESULT_KEYWORDS = ['심사의결서', '평가사유서', '투표결과', '심사결과', '결과공고', '심사위원명단', '심사표', '평가표', '집계표', '입상작', '당선작'];
   function extractDocPrefix(nameNoExt, keywords) {
     // 괄호 내용 제거: (효자중), (서울), (2건) 같은 태그 처리

@@ -116,7 +116,7 @@ function parseAwardFromFilename(nameNoExt) {
 ### 파일명 생성
 
 ```javascript
-const NOTICE_KEYWORDS = ['과업지시서', '지침서', '공고문', '제안서'];
+const NOTICE_KEYWORDS = ['과업지시서', '과업설명서', '지침서', '공고문', '제안서'];
 const RESULT_KEYWORDS = ['심사의결서', '평가사유서', '투표결과', '심사결과', '결과공고', '심사위원명단', '심사표', '평가표', '집계표', '입상작', '당선작'];
 ```
 - `extractNoticePrefix` / `extractResultPrefix` → 키워드 매칭 후 접두사 추출
