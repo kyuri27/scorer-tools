@@ -1260,6 +1260,7 @@ async function extractPdfAwardImages(data, files) {
       logProgress(`   ⚠ 파일 없음: ${award.imageFile} → 후보: ${candidates}`);
       continue;
     }
+    if (matched.type !== 'pdf') continue;  // 이미지 파일은 renderDownloads에서 구분명으로 매칭
     const base64 = await renderPdfPage(matched.arrayBuffer, award.imagePage, award.imageIndex || 1);
     if (base64) {
       award.imgBase64 = base64;
@@ -2093,8 +2094,16 @@ async function downloadJudgesTxt() {
 // ───── 입상작 자동 입력 연동 (로컬 HTTP 서버 방식) ─────
 const AWARD_INPUT_PORT = 8765;
 
+// 입력용 정리명 변환: '1위', '1등' → '1순위' (예: 입상작1위_3 → 입상작1순위_3)
+function normalizeAwardRankText(label) {
+  return (label || '').replace(/(^|[^\d])1\s*(?:위|등)/g, '$11순위');
+}
+
 // 수상작 라벨 생성 — _awardLabelOverrides 우선, 없으면 자동 생성
 function buildAwardLabel(award, typeCounts, idx) {
+  return normalizeAwardRankText(buildAwardLabelRaw(award, typeCounts, idx));
+}
+function buildAwardLabelRaw(award, typeCounts, idx) {
   // award 객체에 직접 저장된 customLabel 최우선 (인덱스 불일치 방어)
   if (award && award.customLabel) return award.customLabel;
   if (idx !== undefined && window._awardLabelOverrides && window._awardLabelOverrides[idx] !== undefined) {
@@ -2492,6 +2501,8 @@ async function renderDownloads(data) {
     for (const kw of keywords) {
       if (cleanedNoSpace.includes(kw)) return seosik + kw;
     }
+    // 공고 파일: '공고문'·'공고서' 없이 '공고'만 있어도 공고문으로 (결과 파일의 '결과공고'는 제외)
+    if (keywords === NOTICE_KEYWORDS && cleanedNoSpace.includes('공고') && !cleanedNoSpace.includes('결과공고')) return seosik + '공고문';
     // 키워드 없으면 괄호 제거된 이름 반환 (원본에 괄호가 있었을 때만)
     if (cleaned !== nameNoExt) return (seosik + cleaned.replace(/[+＋]\s*$/, '').trim()) || null;
     return seosik || null;
@@ -2650,55 +2661,99 @@ async function renderDownloads(data) {
 
     const usedAwards = new Set();
     const imageFiles = resultFiles.filter(f => f.type === 'image');
+    const normName = str => (str || '').normalize('NFC').replace(/\s+/g, '');
+    const awardTypeOf = a => normName(a.awardTypePdf || a.awardTypeSeumter || a.awardType || '').replace(/\d+$/, '');
 
-    for (const f of imageFiles) {
-      const ext = f.name.match(/\.(png|jpe?g|webp)$/i)?.[0] || '.jpg';
-      const nameNoExt = f.name.normalize('NFC').trim()
-        .replace(/\.(png|jpe?g|webp)$/i, '').replace(/\s+/g, '');
-
-      // 1차: 파일명에 포함된 수상작 라벨 검색 (가장 긴 매칭 우선)
-      let bestAward = null, bestLen = 0;
-      for (const award of data.awards) {
-        if (usedAwards.has(award)) continue;
-        const lbl = getAwardLabel(award).replace(/\s+/g, '');
-        if (lbl && nameNoExt.includes(lbl) && lbl.length > bestLen) {
-          bestAward = award; bestLen = lbl.length;
+    // 파일명에서 수상작 찾기
+    //  1순위: 정리명 전체 포함 (예: 가작1_18 / 사용자가 수정한 정리명 포함)
+    //  2순위: 구분명 포함 (예: 당선작.jpg → 당선작, 가작2.jpg → 두 번째 가작, 최우수작 > 우수작 처럼 긴 구분명 우선)
+    function matchAwardByName(nameNoExt) {
+      let best = null, bestLen = 0;
+      data.awards.forEach((award, idx) => {
+        if (usedAwards.has(award)) return;
+        const labels = [getAwardLabel(award)];
+        const ov = window._awardLabelOverrides && window._awardLabelOverrides[idx];
+        if (ov) labels.push(ov);
+        for (const l of labels) {
+          const lbl = normName(l);
+          // 참가번호가 붙은 정리명(가작1_18)만 직접 매칭 — 번호 없는 '기타입상작2'는 아래 오름차순 매칭으로 처리
+          if (lbl && lbl.includes('_') && nameNoExt.includes(lbl) && lbl.length > bestLen) { best = award; bestLen = lbl.length; }
         }
-      }
+      });
+      if (best) return { award: best };
 
-      // 2차: 이름 매핑 실패 시 이미지 없는 수상작에 순서대로 매핑
-      if (!bestAward) {
+      // 구분명 매칭: 파일명에 포함된 가장 긴 구분명 선택
+      let matchedType = '', typeIdx = -1;
+      for (const award of data.awards) {
+        const t = awardTypeOf(award);
+        const i = t ? nameNoExt.indexOf(t) : -1;
+        if (i >= 0 && t.length > matchedType.length) { matchedType = t; typeIdx = i; }
+      }
+      if (!matchedType) return null;
+      // 구분명 뒤 숫자 = 정렬 기준 (예: 가작2, 기타입상작 3위) — 값 자체가 아니라 오름차순 순서로만 사용
+      const after = nameNoExt.slice(typeIdx + matchedType.length);
+      const numM = after.match(/^[-_.]?(\d+)/);
+      return { type: matchedType, order: numM ? parseInt(numM[1]) : Infinity };
+    }
+
+    function attachImage(f, award) {
+      const ext = f.name.match(/\.(png|jpe?g|webp)$/i)?.[0] || '.jpg';
+      // imgBase64 설정 → 수상작 테이블에 이미지 표시됨
+      award.imgBase64 = arrayBufferToBase64(f.arrayBuffer);
+      award.imgMime = f.mimeType || 'image/jpeg';
+      delete award.imgSrc;
+      usedAwards.add(award);
+      imagesAddedToAwards = true;
+
+      const lbl = getAwardLabel(award);
+      const office = (award.office || '').replace(/[\\/:"*?<>|]/g, '').trim();
+      const filename = (office ? `${lbl}_${office}` : lbl) + ext;
+      const blob = new Blob([f.arrayBuffer], { type: f.mimeType || 'image/jpeg' });
+      results.push({ filename, url: URL.createObjectURL(blob), pageCount: null, fileCount: 1, isImage: true });
+      logProgress(`   🖼 ${f.name} → ${lbl}`);
+    }
+
+    // 1단계: 파일명(정리명·구분명)으로 매칭 — 순서 매핑보다 먼저 처리해야 다른 파일이 자리를 뺏지 않음
+    const unmatched = [];
+    const byType = {};  // 구분명 → [{f, nameNoExt, order}]
+    imageFiles.forEach((f, fileIdx) => {
+      const nameNoExt = normName(f.name.trim().replace(/\.(png|jpe?g|webp)$/i, ''));
+      const m = matchAwardByName(nameNoExt);
+      if (m && m.award) attachImage(f, m.award);
+      else if (m && m.type) (byType[m.type] = byType[m.type] || []).push({ f, nameNoExt, order: m.order, fileIdx });
+      else unmatched.push({ f, nameNoExt });
+    });
+    // 같은 구분 이미지끼리 파일명 숫자 오름차순 정렬 → 해당 구분 수상작(1, 2, 3…)에 순서대로 매칭
+    // 예) 기타입상작2위·3위·4위 → 기타입상작1·2·3
+    for (const [type, files] of Object.entries(byType)) {
+      files.sort((x, y) => (x.order - y.order) || (x.fileIdx - y.fileIdx));
+      const slots = data.awards
+        .map((a, i) => ({ a, i }))
+        .filter(({ a }) => awardTypeOf(a) === type && !usedAwards.has(a))
+        .sort((x, y) => ((x.a.pdfRank || 0) - (y.a.pdfRank || 0)) || (x.i - y.i))
+        .map(({ a }) => a);
+      files.forEach((item, k) => {
+        if (slots[k]) attachImage(item.f, slots[k]);
+        else unmatched.push(item);
+      });
+    }
+
+    // 2단계: 이름으로 못 찾은 파일 → 파일명 패턴 파싱으로 새 수상작 생성, 그래도 안 되면 이미지 없는 수상작에 순서대로
+    for (const { f, nameNoExt } of unmatched) {
+      let bestAward = null;
+      const parsed = parseAwardFromFilename(nameNoExt);
+      if (parsed) {
+        bestAward = {
+          awardType: parsed.awardType, awardTypePdf: parsed.awardType,
+          pdfRank: parsed.pdfRank, num: parsed.num, office: '', designer: '',
+          _fromFilename: true,
+        };
+        data.awards.push(bestAward);
+        logProgress(`   • 파일명 파싱 → ${parsed.awardType}${parsed.pdfRank||''}_${parsed.num}`);
+      } else {
         bestAward = data.awards.find(a => !usedAwards.has(a) && !a.imgBase64 && !a.imgSrc) || null;
       }
-
-      // 3차: 파일명 패턴으로 파싱해 새 수상작 생성
-      if (!bestAward) {
-        const parsed = parseAwardFromFilename(nameNoExt);
-        if (parsed) {
-          const newAward = {
-            awardType: parsed.awardType, awardTypePdf: parsed.awardType,
-            pdfRank: parsed.pdfRank, num: parsed.num, office: '', designer: '',
-            _fromFilename: true,
-          };
-          data.awards.push(newAward);
-          bestAward = newAward;
-          logProgress(`   • 파일명 파싱 → ${parsed.awardType}${parsed.pdfRank||''}_${parsed.num}`);
-        }
-      }
-
-      if (bestAward) {
-        // imgBase64 설정 → 수상작 테이블에 이미지 표시됨
-        bestAward.imgBase64 = arrayBufferToBase64(f.arrayBuffer);
-        bestAward.imgMime = f.mimeType || 'image/jpeg';
-        usedAwards.add(bestAward);
-        imagesAddedToAwards = true;
-
-        const lbl = getAwardLabel(bestAward);
-        const office = (bestAward.office || '').replace(/[\\/:"*?<>|]/g, '').trim();
-        const filename = (office ? `${lbl}_${office}` : lbl) + ext;
-        const blob = new Blob([f.arrayBuffer], { type: f.mimeType || 'image/jpeg' });
-        results.push({ filename, url: URL.createObjectURL(blob), pageCount: null, fileCount: 1, isImage: true });
-      }
+      if (bestAward) attachImage(f, bestAward);
     }
   }
 

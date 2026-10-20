@@ -8,11 +8,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **GitHub 저장소**: `https://github.com/kyuri27/scorer-tools.git`
 - **배포 URL**: `https://kyuri27.github.io/scorer-tools/공모결과정리도구.html`
-- **로컬 작업 경로**: `/Users/kyurikim/Desktop/바이브코딩/스코어러 데이터/scorer-tools/`
+- **로컬 작업 경로**: `/Users/kyurikim/Desktop/스코어러 데이터/scorer-tools/`
 
 커밋/푸시:
 ```bash
-cd "/Users/kyurikim/Desktop/바이브코딩/스코어러 데이터/scorer-tools"
+cd "/Users/kyurikim/Desktop/스코어러 데이터/scorer-tools"
 git add 공모결과정리도구.html CLAUDE.md
 git commit -m "..."
 git push origin main
@@ -111,6 +111,14 @@ function parseAwardFromFilename(nameNoExt) {
 }
 ```
 
+**결과 파일 이미지 → 수상작 매칭** (`renderDownloads` 내 `matchAwardByName`):
+1. 파일명에 참가번호 붙은 정리명(`가작1_18`, `_` 포함)이 있으면 그 수상작에 직접 연결 (사용자 수정 정리명 포함)
+2. 파일명에 구분명이 있으면 해당 구분으로 분류 (긴 구분명 우선: 최우수작 ≠ 우수작). 같은 구분 이미지끼리 **파일명 숫자 오름차순** 정렬 후 그 구분의 수상작 1, 2, 3…에 순서대로 배정 — 숫자 값 자체는 무시 (예: `기타입상작2위·3위·4위` → `기타입상작1·2·3`)
+3. 이름 매칭 실패 파일만 `parseAwardFromFilename` → 그래도 없으면 이미지 없는 수상작에 순서대로
+- 파일명으로 올린 이미지는 PDF 추출 이미지보다 우선. `extractPdfAwardImages`는 PDF가 아닌 파일 건너뜀
+
+**입력용 정리명 변환**: `buildAwardLabel` → `normalizeAwardRankText`가 `1위`·`1등` → `1순위` (11위 등은 유지). 입력 텍스트·이미지 파일명·수상작 txt에 적용, 화면 표 표시는 원문 유지
+
 **수동 편집**: 구분·정리명·설계사무소·대표설계자 모두 inline input. 추가(＋)/삭제(✕). "변경사항 저장" → `window._awardsSaved`.
 
 ### 파일명 생성
@@ -121,6 +129,7 @@ const RESULT_KEYWORDS = ['심사의결서', '평가사유서', '투표결과', '
 ```
 - `extractNoticePrefix` / `extractResultPrefix` → 키워드 매칭 후 접두사 추출
 - 키워드 매칭은 **공백 제거 후 비교** (`cleanedNoSpace`) — "결선작 선정투표 결과"처럼 공백이 있어도 '투표결과' 키워드로 그룹화됨
+- 공고 파일: `공고문`·`공고서`는 키워드보다 먼저 `공고문`으로 통일. 키워드가 없고 `공고`만 있어도 `공고문` (`결과공고` 제외)
 - `[붙임N]` 패턴 파일명에서 제거
 - 날짜 입력: `manualNoticeDate`/`manualAnnounceDate` DOM 직접 읽음 (JSON보다 항상 우선)
 
