@@ -24,6 +24,7 @@ git push origin main
 - **PDF.js** — PDF → 이미지 변환 (페이지 렌더링)
 - **pdf-lib** — PDF 병합 (결과 파일 합본)
 - **JSZip** — ZIP 생성 (현재 미사용, 순수 JS buildZip으로 대체됨)
+- **ExcelJS 4.4.0** (cdnjs) — 결과 엑셀(.xlsx) 합본 (`mergeXlsxFiles`)
 - **Google Gemini API** — PDF/이미지 분석 (REST 호출, 키는 localStorage에 저장)
 
 ## 지원 파일 타입
@@ -33,7 +34,7 @@ git push origin main
 | pdf | .pdf | ✅ | ✅ | 결과 파일끼리 접두사별 병합 |
 | image | .png .jpg .jpeg .webp | ✅ | ✅ | 수상작 이미지 매핑 |
 | hwp | .hwp .hwpx | ❌ | ✅ | 개별 이름 변경만 |
-| excel | .xlsx .xls | ❌ | ✅ | 개별 이름 변경만 |
+| excel | .xlsx .xls | ❌ | ✅ | 결과 .xlsx는 접두사별 합본(파일마다 시트), .xls·공고 엑셀은 이름 변경만 |
 | zip | .zip | ❌ | ✅ | 개별 이름 변경만 |
 
 **공고 파일은 PDF 포함 모두 병합하지 않고 파일별 개별 이름 변경.**
@@ -132,6 +133,12 @@ const RESULT_KEYWORDS = ['심사의결서', '평가사유서', '투표결과', '
 - 공고 파일: `공고문`·`공고서`는 키워드보다 먼저 `공고문`으로 통일. 키워드가 없고 `공고`만 있어도 `공고문` (`결과공고` 제외)
 - `[붙임N]` 패턴 파일명에서 제거
 - 날짜 입력: `manualNoticeDate`/`manualAnnounceDate` DOM 직접 읽음 (JSON보다 항상 우선)
+
+**결과 엑셀 합본** (`mergeXlsxFiles`): 결과 `.xlsx`도 `groupFiles`로 PDF와 같은 접두사 그룹핑 → 그룹당 `{prefix}_{공모명}_{날짜}.xlsx` 하나.
+- 원본 파일마다 시트 1개, 시트명 = 원본 파일명(`[붙임N]` 제거). 원본에 시트가 여러 개면 `파일명_시트명`. 31자 제한·금지문자 제거·중복 시 `(2)`
+- 값·수식(결과값 포함)·셀 서식·병합·열 너비·행 높이·숨김 유지. 시트 내 이미지/차트는 복사 안 됨
+- 그룹에 1개뿐이면 원본 그대로 이름만 변경. 합본 실패 시 경고 + 파일별 이름 변경(`_1`, `_2`)으로 대체
+- `.xls`는 ExcelJS 미지원 → 합본 없이 이름 변경만
 
 **결과 파일 병합 순서**: 같은 그룹 내에서 `당선작 > 결선작 > 입선작 > 입상작` 우선순위 후 가나다순
 ```javascript

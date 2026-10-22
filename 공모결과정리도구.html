@@ -23,6 +23,7 @@
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js"></script>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -2450,6 +2451,66 @@ function formatDateForFile(dateStr) {
   return `${y.slice(2)}${m}${d}`;
 }
 
+// ───── 엑셀 합본: 원본 파일마다 시트를 만들어 한 통합문서로 (값·서식·병합·열너비·행높이 유지) ─────
+async function mergeXlsxFiles(files) {
+  const out = new ExcelJS.Workbook();
+  const usedNames = new Set();
+  const uniqueSheetName = base => {
+    // 시트 이름 규칙: 31자 이하, []:*?/\ 불가, 중복 불가
+    let clean = (base || '시트').replace(/[\[\]:*?\/\\]/g, '').replace(/^'+|'+$/g, '').trim() || '시트';
+    let name = clean.slice(0, 31), n = 2;
+    while (usedNames.has(name.toLowerCase())) {
+      const suf = `(${n++})`;
+      name = clean.slice(0, 31 - suf.length) + suf;
+    }
+    usedNames.add(name.toLowerCase());
+    return name;
+  };
+
+  for (const f of files) {
+    const src = new ExcelJS.Workbook();
+    await src.xlsx.load(f.arrayBuffer);
+    const baseName = f.name.normalize('NFC').trim().replace(/\.xlsx$/i, '').replace(/\[붙임[^\]]*\]\s*/g, '').trim();
+    const srcSheets = src.worksheets.filter(ws => ws.state !== 'veryHidden');
+    for (const ws of srcSheets) {
+      // 원본에 시트가 여러 개면 "파일명_시트명" — 31자 제한 시 파일명 쪽을 잘라 시트명은 보존
+      const sheetPart = `_${ws.name}`.slice(0, 15);
+      const dst = out.addWorksheet(uniqueSheetName(srcSheets.length > 1 ? baseName.slice(0, 31 - sheetPart.length) + sheetPart : baseName), {
+        properties: JSON.parse(JSON.stringify(ws.properties || {})),
+        pageSetup: JSON.parse(JSON.stringify(ws.pageSetup || {})),
+        views: JSON.parse(JSON.stringify(ws.views || [])),
+      });
+      if (ws.state === 'hidden') dst.state = 'hidden';
+      (ws.columns || []).forEach((col, i) => {
+        const dc = dst.getColumn(i + 1);
+        if (col.width) dc.width = col.width;
+        if (col.hidden) dc.hidden = true;
+        if (col.style && Object.keys(col.style).length) dc.style = JSON.parse(JSON.stringify(col.style));
+      });
+      ws.eachRow({ includeEmpty: true }, (row, r) => {
+        const dr = dst.getRow(r);
+        if (row.height) dr.height = row.height;
+        if (row.hidden) dr.hidden = true;
+        row.eachCell({ includeEmpty: true }, (cell, c) => {
+          const dcell = dr.getCell(c);
+          if (cell.type === ExcelJS.ValueType.Merge) {
+            // 병합 셀의 하위 셀은 서식만 (값은 마스터 셀에)
+          } else if (cell.type === ExcelJS.ValueType.Formula) {
+            dcell.value = { formula: cell.formula, result: cell.result };
+          } else {
+            dcell.value = cell.value;
+          }
+          if (cell.style) dcell.style = JSON.parse(JSON.stringify(cell.style));
+        });
+        dr.commit && dr.commit();
+      });
+      (ws.model.merges || []).forEach(rng => { try { dst.mergeCells(rng); } catch (_) {} });
+    }
+  }
+  const buf = await out.xlsx.writeBuffer();
+  return { bytes: new Uint8Array(buf), sheetCount: out.worksheets.length };
+}
+
 function findFileByName(fileName) {
   const n = s => s.normalize('NFC').trim();
   const nf = n(fileName);
@@ -2516,11 +2577,12 @@ async function renderDownloads(data) {
   function normalizePrefix(prefix) {
     return prefix.replace(/\s*\d+\s*$/, '').trim() || prefix;
   }
+  const isXlsx = f => f.type === 'excel' && /\.xlsx$/i.test(f.name);
   function groupFiles(fileArr, datePart, isNotice = false) {
     const groups = {};
     for (const f of fileArr) {
-      if (f.type !== 'pdf' && f.type !== 'hwp') continue;
-      const nameNoExt = f.name.normalize('NFC').trim().replace(/\.(pdf|hwpx?)$/i, '').replace(/\[붙임[^\]]*\]\s*/g, '').trim();
+      if (f.type !== 'pdf' && f.type !== 'hwp' && !isXlsx(f)) continue;
+      const nameNoExt = f.name.normalize('NFC').trim().replace(/\.(pdf|hwpx?|xlsx)$/i, '').replace(/\[붙임[^\]]*\]\s*/g, '').trim();
       let prefix = (isNotice ? extractNoticePrefix(nameNoExt) : extractResultPrefix(nameNoExt))
         || (nameNoExt.includes('_') ? nameNoExt.split('_')[0] : nameNoExt);
       prefix = normalizePrefix(prefix); // 끝 숫자 제거
@@ -2586,6 +2648,35 @@ async function renderDownloads(data) {
     }
   }
 
+  // 결과 엑셀(.xlsx): 같은 접두사끼리 원본 파일마다 시트 하나씩 만들어 한 파일로 합본 (서식 유지)
+  for (const [prefix, g] of Object.entries(resultGroups)) {
+    const xlsxFiles = g.files.filter(isXlsx);
+    if (xlsxFiles.length === 0) continue;
+    const filename = `${prefix}_${compName}${g.datePart}.xlsx`;
+    try {
+      let bytes, sheetCount;
+      if (xlsxFiles.length === 1) {
+        bytes = new Uint8Array(xlsxFiles[0].arrayBuffer);  // 1개면 원본 그대로 이름만 변경
+        sheetCount = null;
+      } else {
+        if (typeof ExcelJS === 'undefined') throw new Error('ExcelJS 라이브러리 로드 실패 (인터넷 연결 확인)');
+        const merged = await mergeXlsxFiles(xlsxFiles);
+        bytes = merged.bytes; sheetCount = merged.sheetCount;
+      }
+      const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      results.push({ filename, url: URL.createObjectURL(blob), pageCount: null, fileCount: xlsxFiles.length, isExcel: true, sheetCount });
+      window._processedUploadFiles.push({ filename, data: toBase64(bytes) });
+    } catch (e) {
+      warnings.push(`"${prefix}" 엑셀 합본 실패: ${e.message} — 원본 파일별로 이름만 변경`);
+      xlsxFiles.forEach((f, i) => {
+        const fn = `${prefix}_${compName}${g.datePart}${xlsxFiles.length > 1 ? `_${i + 1}` : ''}.xlsx`;
+        const blob = new Blob([f.arrayBuffer], { type: 'application/octet-stream' });
+        results.push({ filename: fn, url: URL.createObjectURL(blob), pageCount: null, fileCount: 1, isHwp: true });
+        window._processedUploadFiles.push({ filename: fn, data: toBase64(f.arrayBuffer) });
+      });
+    }
+  }
+
   // 공고 PDF: 병합 없이 파일별 개별 이름 변경
   for (const f of noticeFiles) {
     if (f.type !== 'pdf') continue;
@@ -2603,6 +2694,7 @@ async function renderDownloads(data) {
   for (const [fileArr, dp, isNotice] of [[noticeFiles, noticeDatePart, true], [resultFiles, resultDatePart, false]]) {
     for (const f of fileArr) {
       if (f.type !== 'hwp' && f.type !== 'zip' && f.type !== 'excel') continue;
+      if (!isNotice && isXlsx(f)) continue;  // 결과 .xlsx는 위에서 합본 처리 (.xls는 합본 불가 → 이름 변경만)
       const ext = f.name.match(/\.(hwpx?|zip|xlsx?)$/i)?.[0] || (f.type === 'zip' ? '.zip' : f.type === 'excel' ? '.xlsx' : '.hwp');
       const nameNoExt = f.name.normalize('NFC').trim().replace(/\.(hwpx?|zip|xlsx?)$/i, '').replace(/\[붙임[^\]]*\]\s*/g, '').trim();
       const prefix = normalizePrefix(
@@ -2786,9 +2878,10 @@ async function renderDownloads(data) {
   results.forEach(r => {
     const item = document.createElement('div');
     item.className = 'download-item';
-    const srcNote = r.isImage ? ' · 이름 변경' : r.isHwp ? ' · 이름 변경' : r.fileCount > 1 ? ` · 원본 ${r.fileCount}개 합본` : '';
-    const pageInfo = r.isImage ? '이미지' : r.isHwp ? 'HWP' : `${r.pageCount}p`;
-    const icon = r.isImage ? '🖼️' : r.isHwp ? '📝' : '📄';
+    const srcNote = r.isImage ? ' · 이름 변경' : r.isHwp ? ' · 이름 변경' : r.fileCount > 1 ? ` · 원본 ${r.fileCount}개 합본` : (r.isExcel ? ' · 이름 변경' : '');
+    const extLabel = /\.xlsx?$/i.test(r.filename) ? 'EXCEL' : /\.zip$/i.test(r.filename) ? 'ZIP' : 'HWP';
+    const pageInfo = r.isImage ? '이미지' : r.isHwp ? extLabel : r.isExcel ? (r.sheetCount ? `${r.sheetCount}시트` : 'EXCEL') : `${r.pageCount}p`;
+    const icon = r.isImage ? '🖼️' : (r.isExcel || extLabel === 'EXCEL') ? '📊' : extLabel === 'ZIP' && r.isHwp ? '🗜️' : r.isHwp ? '📝' : '📄';
     item.innerHTML = `
       <span class="download-item-name">${icon} ${r.filename} <span style="color:#6b7280;">(${pageInfo}${srcNote})</span></span>
       <a href="${r.url}" download="${r.filename}"><button>다운로드</button></a>
