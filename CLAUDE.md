@@ -125,13 +125,14 @@ function parseAwardFromFilename(nameNoExt) {
 ### 파일명 생성
 
 ```javascript
-const NOTICE_KEYWORDS = ['과업지시서', '과업설명서', '지침서', '공고문', '제안서'];
+const NOTICE_KEYWORDS = ['과업지시서', '과업설명서', '과업내용서', '지침서', '공고문', '제안서'];
 const RESULT_KEYWORDS = ['심사의결서', '평가사유서', '투표결과', '심사결과', '결과공고', '심사위원명단', '심사표', '평가표', '집계표', '입상작', '당선작'];
 ```
 - `extractNoticePrefix` / `extractResultPrefix` → 키워드 매칭 후 접두사 추출
 - 키워드 매칭은 **공백 제거 후 비교** (`cleanedNoSpace`) — "결선작 선정투표 결과"처럼 공백이 있어도 '투표결과' 키워드로 그룹화됨
 - 공고 파일: `공고문`·`공고서`는 키워드보다 먼저 `공고문`으로 통일. 키워드가 없고 `공고`만 있어도 `공고문` (`결과공고` 제외)
 - `[붙임N]` 패턴 파일명에서 제거
+- 파일명 앞 번호 제거 (`stripLeadingNumber`): `2. `, `01_`, `(3)`, `①`, `가.` 등 — `1차`, `2026` 처럼 구분자 없는 숫자는 유지
 - 날짜 입력: `manualNoticeDate`/`manualAnnounceDate` DOM 직접 읽음 (JSON보다 항상 우선)
 
 **결과 엑셀 합본** (`mergeXlsxFiles`): 결과 `.xlsx`도 `groupFiles`로 PDF와 같은 접두사 그룹핑 → 그룹당 `{prefix}_{공모명}_{날짜}.xlsx` 하나.

@@ -2550,7 +2550,7 @@ async function renderDownloads(data) {
 
   // 문서 종류 키워드 추출 (공고: 지침서/과업지시서/공고문, 결과: 심사의결서/평가사유서 등)
   // 키워드가 있으면 그것을 prefix로, 없으면 기존 방식(첫 '_' 앞)
-  const NOTICE_KEYWORDS = ['과업지시서', '과업설명서', '지침서', '공고문', '제안서'];
+  const NOTICE_KEYWORDS = ['과업지시서', '과업설명서', '과업내용서', '지침서', '공고문', '제안서'];
   const RESULT_KEYWORDS = ['심사의결서', '평가사유서', '투표결과', '심사결과', '결과공고', '심사위원명단', '심사표', '평가표', '집계표', '입상작', '당선작'];
   function extractDocPrefix(nameNoExt, keywords) {
     // 괄호 내용 제거: (효자중), (서울), (2건) 같은 태그 처리
@@ -2577,12 +2577,14 @@ async function renderDownloads(data) {
   function normalizePrefix(prefix) {
     return prefix.replace(/\s*\d+\s*$/, '').trim() || prefix;
   }
+  // 파일명 앞 번호 제거: "2. 과업내용서", "01_지침서", "(3) 공고문", "① 제안서", "가. 공고" → 번호 뒤 이름만
+  const stripLeadingNumber = name => name.replace(/^\s*(?:\d{1,3}\s*[.)\-_]|\(\d{1,3}\)|[①-⑳]|[가나다라마바사아자차카타파하]\.)\s*/, '').trim() || name;
   const isXlsx = f => f.type === 'excel' && /\.xlsx$/i.test(f.name);
   function groupFiles(fileArr, datePart, isNotice = false) {
     const groups = {};
     for (const f of fileArr) {
       if (f.type !== 'pdf' && f.type !== 'hwp' && !isXlsx(f)) continue;
-      const nameNoExt = f.name.normalize('NFC').trim().replace(/\.(pdf|hwpx?|xlsx)$/i, '').replace(/\[붙임[^\]]*\]\s*/g, '').trim();
+      const nameNoExt = stripLeadingNumber(f.name.normalize('NFC').trim().replace(/\.(pdf|hwpx?|xlsx)$/i, '').replace(/\[붙임[^\]]*\]\s*/g, '').trim());
       let prefix = (isNotice ? extractNoticePrefix(nameNoExt) : extractResultPrefix(nameNoExt))
         || (nameNoExt.includes('_') ? nameNoExt.split('_')[0] : nameNoExt);
       prefix = normalizePrefix(prefix); // 끝 숫자 제거
@@ -2680,7 +2682,7 @@ async function renderDownloads(data) {
   // 공고 PDF: 병합 없이 파일별 개별 이름 변경
   for (const f of noticeFiles) {
     if (f.type !== 'pdf') continue;
-    const nameNoExt = f.name.normalize('NFC').trim().replace(/\.pdf$/i, '').replace(/\[붙임[^\]]*\]\s*/g, '').trim();
+    const nameNoExt = stripLeadingNumber(f.name.normalize('NFC').trim().replace(/\.pdf$/i, '').replace(/\[붙임[^\]]*\]\s*/g, '').trim());
     const prefix = normalizePrefix(extractNoticePrefix(nameNoExt) || (nameNoExt.includes('_') ? nameNoExt.split('_')[0] : nameNoExt));
     const filename = `${prefix}_${compName}${noticeDatePart}.pdf`;
     const blob = new Blob([f.arrayBuffer], { type: 'application/pdf' });
@@ -2696,7 +2698,7 @@ async function renderDownloads(data) {
       if (f.type !== 'hwp' && f.type !== 'zip' && f.type !== 'excel') continue;
       if (!isNotice && isXlsx(f)) continue;  // 결과 .xlsx는 위에서 합본 처리 (.xls는 합본 불가 → 이름 변경만)
       const ext = f.name.match(/\.(hwpx?|zip|xlsx?)$/i)?.[0] || (f.type === 'zip' ? '.zip' : f.type === 'excel' ? '.xlsx' : '.hwp');
-      const nameNoExt = f.name.normalize('NFC').trim().replace(/\.(hwpx?|zip|xlsx?)$/i, '').replace(/\[붙임[^\]]*\]\s*/g, '').trim();
+      const nameNoExt = stripLeadingNumber(f.name.normalize('NFC').trim().replace(/\.(hwpx?|zip|xlsx?)$/i, '').replace(/\[붙임[^\]]*\]\s*/g, '').trim());
       const prefix = normalizePrefix(
         (isNotice ? extractNoticePrefix(nameNoExt) : extractResultPrefix(nameNoExt))
         || (nameNoExt.includes('_') ? nameNoExt.split('_')[0] : nameNoExt));
