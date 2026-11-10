@@ -36,6 +36,7 @@ git push origin main
 | hwp | .hwp .hwpx | ❌ | ✅ | 개별 이름 변경만 |
 | excel | .xlsx .xls | ❌ | ✅ | 결과 .xlsx는 접두사별 합본(파일마다 시트), .xls·공고 엑셀은 이름 변경만 |
 | zip | .zip | ❌ | ✅ | 개별 이름 변경만 |
+| other | 그 외 전부 (.docx .doc .txt 등) | ❌ | ✅ | 개별 이름 변경만, 원본 확장자 유지 (업로드 `accept` 제한 없음) |
 
 **공고 파일은 PDF 포함 모두 병합하지 않고 파일별 개별 이름 변경.**
 
