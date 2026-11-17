@@ -121,7 +121,7 @@ function parseAwardFromFilename(nameNoExt) {
 
 **입력용 정리명 변환**: `buildAwardLabel` → `normalizeAwardRankText`가 `1위`·`1등` → `1순위` (11위 등은 유지). 입력 텍스트·이미지 파일명·수상작 txt에 적용, 화면 표 표시는 원문 유지
 
-**수동 편집**: 구분·정리명·설계사무소·대표설계자 모두 inline input. 추가(＋)/삭제(✕). "변경사항 저장" → `window._awardsSaved`.
+**수동 편집**: 구분·정리명·설계사무소·대표설계자 모두 inline input. `runAnalysis` 시작 시 `_awardsSaved`·`_awardLabelOverrides` 초기화 (이전 공모 이미지가 인덱스 순서로 복원되는 문제 방지). 추가(＋)/삭제(✕). "변경사항 저장" → `window._awardsSaved`.
 
 ### 파일명 생성
 

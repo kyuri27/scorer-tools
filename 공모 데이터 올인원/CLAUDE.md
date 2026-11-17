@@ -182,6 +182,7 @@ HTML 도구의 버튼 클릭 시 → 자동으로 모드 1 또는 6 실행.
 | DataTable 검색 결과 stale | debounce ~400ms | 300ms+600ms 대기 + `_wait_stable()` polling |
 | 동명이인 소속 매칭 오류 | 건축사사무소 보일러플레이트가 유사도 부풀림 | `_strip_affiliation_boilerplate()` 후 비교 |
 | 심사위원 다음 페이지 못 찾음 | 첫 페이지만 읽음 | `_collect_all_pages()` 전 페이지 순회 |
+| 이미지 없는 공모에 이전 공모 이미지 등록 | `images`가 있을 때만 `입상작 이미지` 폴더 초기화 → 같은 정리명의 잔여 이미지를 `_find_image`가 찾음 | `run_result_task`에서 항상 `_clear_and_save_files(IMAGE_DIR, images or [])` |
 | 이미지 업로드 실패(`㈜` 등) | `set_input_files` 특수문자 경로 오류 | 임시 파일로 복사 후 사용 |
 | 포트 8765 점유 | 이전 프로세스 미종료 | `_kill_port()` 자동 실행 |
 | 브라우저 닫힌 후 오류 | `browser is None` 체크 불충분 | `_browser_alive()` 함수 |

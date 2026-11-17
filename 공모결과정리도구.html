@@ -787,6 +787,10 @@ async function runAnalysis() {
   btn.innerHTML = '<span class="spinner"></span> 분석 중...';
   stopBtn.style.display = 'inline-block';
   initProgress();
+  // 새 분석 시작 → 이전 공모의 수상작 편집 상태(이미지·정리명) 초기화 (다시하기 없이 분석해도 이전 이미지가 복원되지 않도록)
+  window._awardsSaved = null;
+  window._awardLabelOverridesSaved = null;
+  window._awardLabelOverrides = {};
   document.getElementById('summaryCard').style.display = 'none';
   document.getElementById('downloadCard').style.display = 'none';
   document.getElementById('resetBar').style.display = 'none';

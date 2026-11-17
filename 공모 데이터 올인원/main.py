@@ -1006,7 +1006,7 @@ def _wait_for_org_table(page):
 
 
 def _collect_all_table_rows(page) -> list:
-    """DataTable 전체 페이지를 순회하며 (page_num, row_idx, text) 수집"""
+    """DataTable 전체 페이지를 순회하며 (page_num, row_idx, 이름 컬럼 text) 수집"""
     all_rows = []
     current_page = 1
 
@@ -1017,7 +1017,13 @@ def _collect_all_table_rows(page) -> list:
             first_text = rows.nth(0).inner_text()
             if not ("No data" in first_text or ("데이터" in first_text and "없" in first_text)):
                 for i in range(rc):
-                    all_rows.append((current_page, i, rows.nth(i).inner_text()))
+                    # 컬럼: ID / 이미지 / 이름 / 버튼 → 이름(index 2)만 사용
+                    cells = rows.nth(i).locator('td')
+                    if cells.count() >= 3:
+                        text = cells.nth(2).inner_text().strip()
+                    else:
+                        text = rows.nth(i).inner_text()
+                    all_rows.append((current_page, i, text))
 
         # 다음 페이지 버튼 확인
         next_btn = page.locator('#dataTable_next')
@@ -1052,32 +1058,22 @@ def _search_org_and_select(page, search_term, original_name) -> bool:
         print("     검색결과 1개 → 자동 선택")
     else:
         page_info = f" (총 {total_pages}페이지)" if total_pages > 1 else ""
-        print(f"     검색결과 {len(all_rows)}개{page_info} → 매칭 중")
-
-        # 1순위: 이름 컬럼이 original_name과 정확히 일치하는 행
-        _BTN_LABELS = {"선택", "수정", "삭제", "취소", "저장"}
-        def _extract_names(text):
-            parts = [p.strip() for p in text.replace('\t', '\n').split('\n') if p.strip()]
-            return [p for p in parts if p not in _BTN_LABELS and not p.isdigit()]
-
-        exact_idx = None
+        print(f"     검색결과 {len(all_rows)}개{page_info} → 유사도 매칭 중")
+        # 1순위: 정확 일치 / 2순위: 유사도 / 동점이면 이름 길이 차이가 작은 쪽
+        # (예: '제주특별자치도' 검색 시 '제주특별자치도교육청'도 포함관계로 100%가 되므로
+        #      길이 차이로 '제주특별자치도'를 우선)
+        target_n = normalize(original_name)
+        best_key, best_idx = None, 0
         for idx, (pg, ri, text) in enumerate(all_rows):
-            if original_name in _extract_names(text):
-                exact_idx = idx
-                break
-
-        if exact_idx is not None:
-            target_page, target_row_idx, _ = all_rows[exact_idx]
-            print(f"     정확 일치 → 선택")
-        else:
-            # 2순위: 유사도 매칭
-            best, best_idx = 0.0, 0
-            for idx, (pg, ri, text) in enumerate(all_rows):
-                s = affiliation_similarity(original_name, text)
-                if s > best:
-                    best, best_idx = s, idx
-            target_page, target_row_idx, _ = all_rows[best_idx]
-            print(f"     매칭 (유사도 {best:.0%})")
+            text_n = normalize(text)
+            key = (text_n == target_n,
+                   affiliation_similarity(original_name, text),
+                   -abs(len(text_n) - len(target_n)))
+            if best_key is None or key > best_key:
+                best_key, best_idx = key, idx
+        target_page, target_row_idx, best_text = all_rows[best_idx]
+        tag = "정확 일치" if best_key[0] else f"유사도 {best_key[1]:.0%}"
+        print(f"     매칭: '{best_text}' ({tag})")
 
     # 현재 위치(마지막 페이지)에서 target_page로 이동
     current_page = total_pages
@@ -1135,6 +1131,10 @@ def run_organization_input(page, comp_id: str, agency: str = None):
         cells = page.locator("table:not(#dataTable) td b")
         for i in range(cells.count()):
             rn = cells.nth(i).inner_text().strip()
+            name_n, rn_n = normalize(name), normalize(rn)
+            # 등록된 이름이 더 길게 포함하는 경우(예: '제주특별자치도교육청' ⊃ '제주특별자치도')는 다른 기관
+            if name_n != rn_n and name_n in rn_n:
+                continue
             if affiliation_similarity(name, rn) >= 0.8:
                 print(f"  ✓ 이미 등록됨 ({rn}), 건너뜁니다")
                 return
@@ -1427,7 +1427,29 @@ def _clean_architect_name(name: str) -> str:
     return name.strip()
 
 
-def _create_entry(page, create_url, entry_name, img_path=None, result_url=None):
+def _set_result_url(page, contest_url, result_url):
+    """입상작 목록 페이지(/admin/entry/{id})의 '심사결과 확인 URL' 입력 후 저장
+    (입상작 등록 폼이 아니라 목록 페이지 상단의 별도 폼에 있음)"""
+    page.goto(contest_url, wait_until="domcontentloaded", timeout=15000)
+    url_inp = page.locator("input[name='entry_data_url']").first
+    url_inp.wait_for(state="visible", timeout=5000)
+    if url_inp.input_value().strip() == result_url:
+        print("  ⏭  이미 동일한 URL 입력됨")
+        return
+    url_inp.fill(result_url)
+    form = url_inp.locator("xpath=ancestor::form[1]")
+    form.locator("button[type='submit']").first.click()
+    page.wait_for_load_state("load", timeout=15000)
+    time.sleep(0.2)
+
+    page.goto(contest_url, wait_until="domcontentloaded", timeout=15000)
+    saved = page.locator("input[name='entry_data_url']").first.input_value().strip()
+    if saved != result_url:
+        raise Exception(f"저장 후 값 불일치 (현재: '{saved}')")
+    print("  ✅ 심사결과 URL 저장 완료")
+
+
+def _create_entry(page, create_url, entry_name, img_path=None):
     page.goto(create_url)
     page.wait_for_load_state("load", timeout=15000)
 
@@ -1449,29 +1471,6 @@ def _create_entry(page, create_url, entry_name, img_path=None, result_url=None):
                 pub.first.select_option(value="1")
     except Exception:
         pass
-
-    # 심사결과 URL 입력 (create 폼에 필드가 있으면 여기서 처리)
-    url_filled = False
-    if result_url:
-        try:
-            url_inp = page.locator("input[name='entry_data_url']")
-            if url_inp.count() > 0:
-                url_inp.first.fill(result_url)
-                url_filled = True
-                print(f"  🔗 심사결과 URL 입력 (create 폼): {result_url[:60]}")
-            else:
-                # 실제 폼에서 input 이름을 확인해 디버그 정보 출력
-                all_inputs = page.locator("input[type='url'], input[type='text'][name*='url'], input[type='text'][name*='link']")
-                names = []
-                for i in range(min(all_inputs.count(), 5)):
-                    try:
-                        names.append(all_inputs.nth(i).get_attribute("name") or "?")
-                    except Exception:
-                        pass
-                if names:
-                    print(f"  ℹ️  create 폼 URL 관련 필드 없음 (entry_data_url). 발견된 필드: {names}")
-        except Exception as e:
-            print(f"  ⚠️  심사결과 URL 입력 오류 (create): {e}")
 
     if img_path:
         try:
@@ -1500,41 +1499,6 @@ def _create_entry(page, create_url, entry_name, img_path=None, result_url=None):
         except Exception:
             pass
         raise Exception(f"입상작 등록 실패 — 저장 후에도 등록 폼에 머물러 있음{(' (' + err_msg + ')') if err_msg else ''}")
-
-    # 리디렉트된 편집 페이지에 entry_data_url 필드가 있으면 여기서 채우고 재저장
-    # (create 폼에 없고 편집 폼에만 있는 경우 대응)
-    if result_url and not url_filled:
-        try:
-            url_inp2 = page.locator("input[name='entry_data_url']")
-            cnt2 = url_inp2.count()
-            if cnt2 > 0:
-                url_inp2.first.fill(result_url)
-                print(f"  🔗 심사결과 URL 입력 (편집 폼): {result_url[:60]}")
-                try:
-                    save_btn = page.get_by_role("button", name="저장하기")
-                    save_btn.wait_for(state="visible", timeout=3000)
-                    save_btn.click()
-                except Exception:
-                    page.locator("button[type='submit'], input[type='submit']").first.click()
-                page.wait_for_load_state("load", timeout=10000)
-                url_filled = True
-            else:
-                # 편집 폼에도 없으면 실제 필드명 탐색
-                all_inp = page.locator("input")
-                field_names = []
-                for i in range(min(all_inp.count(), 20)):
-                    try:
-                        n = all_inp.nth(i).get_attribute("name") or ""
-                        if n:
-                            field_names.append(n)
-                    except Exception:
-                        pass
-                print(f"  ⚠️  심사결과 URL 필드(entry_data_url) 못 찾음. 편집 폼 input name 목록: {field_names}")
-        except Exception as e:
-            print(f"  ⚠️  심사결과 URL 입력 오류 (편집): {e}")
-
-    if result_url and not url_filled:
-        print(f"  ❌ 심사결과 URL 저장 실패 — 수동 입력 필요: {result_url}")
 
 
 def _get_existing_entry_names(page, contest_url, entry_names=None) -> set:
@@ -1966,9 +1930,9 @@ def run_result_task(page, context, auth_path: Path, data: dict, task_mode: int =
     if awards_txt:
         (SCRIPT_DIR / AWARDS_FILE).write_text(awards_txt, encoding="utf-8-sig")
         print(f"  수상작목록.txt 저장됨")
-    if images:
-        _clear_and_save_files(IMAGE_DIR, images)
-        print(f"  이미지 {len(images)}장 저장됨")
+    # 이미지 폴더 항상 초기화 — 이번 공모에 이미지가 없을 때 이전 공모 이미지(같은 정리명)가 등록되지 않도록
+    _clear_and_save_files(IMAGE_DIR, images or [])
+    print(f"  이미지 {len(images)}장 저장됨" if images else "  이미지 없음 (폴더 비움)")
     # 결과 파일 폴더 항상 초기화 — 파일 없을 때도 이전 공모 파일 남지 않도록
     _wipe_dir(UPLOAD_DIR)
     saved_result_paths = []
@@ -2019,7 +1983,7 @@ def run_result_task(page, context, auth_path: Path, data: dict, task_mode: int =
                     img_label = "이미지 없음" if not img else ""
                     print(f"[{i}/{len(entries)}] {entry_name}{' ('+img_label+')' if img_label else ''} ...", end="", flush=True)
                     try:
-                        _create_entry(page, create_url, entry_name, img, result_url=result_url)
+                        _create_entry(page, create_url, entry_name, img)
                         print("  ✅")
                         created.append((entry_name, architect_name, extra_info))
                     except Exception as e:
@@ -2035,6 +1999,17 @@ def run_result_task(page, context, auth_path: Path, data: dict, task_mode: int =
                             Path(img).unlink(missing_ok=True)
                         except Exception:
                             pass
+
+                # ── 심사결과 URL 저장 (입상작 목록 페이지 상단 폼) ──
+                if result_url:
+                    print(f"\n  심사결과 URL 입력: {result_url}")
+                    try:
+                        _set_result_url(page, contest_url, result_url)
+                    except Exception as e:
+                        print(f"  ❌ 심사결과 URL 입력 실패: {e}")
+                        _add_issue("심사결과 URL 입력 실패", f"'{result_url}' — {e}")
+                else:
+                    print("\n  심사결과 URL 없음 — 건너뜁니다")
 
                 # ── 2단계: 건축가 관리 ──
                 print(f"\n{'─' * 50}")
