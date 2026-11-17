@@ -1398,6 +1398,15 @@ async function extractG2B() {
   }
 }
 
+// 입찰공고번호 → g2b 직접 링크 URL 생성
+// 예) "R26BK01485707 - 000" → https://www.g2b.go.kr/link/PNPE027_01/single/?bidPbancNo=R26BK01485707&bidPbancOrd=000
+function buildG2BDirectUrl(noticeNo) {
+  if (!noticeNo) return '';
+  const m = noticeNo.replace(/\s/g, '').match(/^([A-Z0-9]+)-(\d+)$/);
+  if (!m) return '';
+  return `https://www.g2b.go.kr/link/PNPE027_01/single/?bidPbancNo=${m[1]}&bidPbancOrd=${m[2]}`;
+}
+
 function renderResultG2B(data) {
   document.getElementById('extractBtn').innerHTML = '🔄 다시 추출';
   document.getElementById('extractBtn').disabled = false;
@@ -1421,8 +1430,9 @@ function renderResultG2B(data) {
 
   let html = '<div class="result-section">';
   html += '<h3>📋 공고 개요</h3>';
+  const directUrl = buildG2BDirectUrl(noticeNo);
   if (noticeName)    html += field('공고명', noticeName);
-  if (noticeNo)      html += field('공고번호', noticeNo);
+  if (noticeNo)      html += field('공고번호', noticeNo + (directUrl ? ` <button id="copyDirectUrlBtn" data-url="${directUrl}" style="width:auto;padding:1px 7px;font-size:10px;background:#e0e7ff;color:#2563eb;border:1px solid #c7d2fe;border-radius:3px;cursor:pointer;">링크 복사</button>` : ''));
   if (agency)        html += field('공고기관', agency);
   if (location)      html += field('위치', location);
   if (designCost)    html += field('설계비', `<b style="color:#059669;">${designCost}</b>`);
@@ -1463,6 +1473,15 @@ function renderResultG2B(data) {
     document.getElementById('downloadAttachedBtn').onclick = () => downloadAllAttachedG2B(data);
   }
   document.getElementById('copyToolBtn').onclick = copyForToolG2B;
+  const copyUrlBtn = document.getElementById('copyDirectUrlBtn');
+  if (copyUrlBtn) {
+    copyUrlBtn.onclick = () => {
+      navigator.clipboard.writeText(copyUrlBtn.dataset.url).then(() => {
+        copyUrlBtn.textContent = '복사됨 ✓';
+        setTimeout(() => { copyUrlBtn.textContent = '링크 복사'; }, 1500);
+      });
+    };
+  }
 }
 
 async function copyForToolG2B() {
@@ -1500,6 +1519,7 @@ async function copyForToolG2B() {
     _evalDate:        schedule['평가일시'] || '',
     _evalPlace:       schedule['평가장소'] || pick(d, '평가장소') || '',
     _estimatedCost:   parseAmount(pick(d, '추정가격')),
+    _directUrl:       buildG2BDirectUrl(pick(d, '입찰공고번호')),
   };
 
   copyToClipboard(JSON.stringify(toolData))

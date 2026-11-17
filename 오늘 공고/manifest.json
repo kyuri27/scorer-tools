@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "세움터 오늘 공고",
+  "version": "1.0",
+  "description": "세움터 공공건축 설계공모 오늘 공고 현황",
+  "action": {
+    "default_title": "세움터 오늘 공고"
+  },
+  "permissions": ["scripting", "tabs", "debugger", "storage", "cookies"],
+  "host_permissions": [
+    "https://www.eais.go.kr/*",
+    "https://www.g2b.go.kr/*",
+    "https://www.hub.go.kr/*",
+    "https://project.seoul.go.kr/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "web_accessible_resources": [{
+    "resources": ["index.html"],
+    "matches": ["<all_urls>"]
+  }]
+}

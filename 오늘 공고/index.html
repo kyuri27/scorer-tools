@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>세움터 오늘 공고</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+      background: #f4f6f9;
+      color: #333;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #1a3a6b;
+      color: white;
+      padding: 14px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header h1 { font-size: 16px; font-weight: 700; }
+    .date-badge {
+      background: rgba(255,255,255,0.2);
+      border-radius: 20px;
+      padding: 4px 14px;
+      font-size: 13px;
+    }
+
+    .controls {
+      background: white;
+      padding: 10px 24px;
+      border-bottom: 1px solid #e0e5ec;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .tab-btn {
+      padding: 5px 16px;
+      border-radius: 20px;
+      border: 1px solid #ccd3dd;
+      background: white;
+      font-size: 13px;
+      cursor: pointer;
+      color: #555;
+    }
+    .tab-btn.active { background: #1a3a6b; color: white; border-color: #1a3a6b; }
+    .tab-btn:hover:not(.active) { background: #f0f3f8; }
+
+    .refresh-btn {
+      margin-left: auto;
+      padding: 5px 14px;
+      border-radius: 20px;
+      border: 1px solid #1a3a6b;
+      background: white;
+      color: #1a3a6b;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .refresh-btn:hover { background: #f0f3f8; }
+
+    .section-header {
+      color: white;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .section-title { font-size: 16px; font-weight: 700; }
+    .section-actions { display: flex; align-items: center; gap: 8px; }
+
+    .section-refresh-btn {
+      padding: 4px 12px;
+      border-radius: 20px;
+      border: 1px solid rgba(255,255,255,0.5);
+      background: transparent;
+      color: white;
+      font-size: 12px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .section-refresh-btn:hover { background: rgba(255,255,255,0.15); }
+
+    .site-link-btn {
+      padding: 4px 12px;
+      border-radius: 20px;
+      border: 1px solid rgba(255,255,255,0.5);
+      background: rgba(255,255,255,0.15);
+      color: white;
+      font-size: 12px;
+      text-decoration: none;
+      white-space: nowrap;
+      font-weight: 600;
+    }
+    .site-link-btn:hover { background: rgba(255,255,255,0.3); }
+
+    .summary {
+      padding: 9px 24px;
+      font-size: 13px;
+      color: #666;
+      background: white;
+      border-bottom: 1px solid #e8edf3;
+      min-height: 34px;
+    }
+    .summary strong { color: #1a3a6b; }
+
+    .container { padding: 12px 24px 24px; max-width: 900px; }
+
+    .card {
+      background: white;
+      border-radius: 10px;
+      border: 1px solid #e0e5ec;
+      margin-bottom: 10px;
+      padding: 14px 18px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+    }
+    .card:hover { box-shadow: 0 2px 10px rgba(0,0,0,0.08); }
+
+    .card-no { font-size: 11px; color: #aaa; margin-bottom: 4px; }
+    .card-title { font-size: 15px; font-weight: 600; color: #1a2a4a; margin-bottom: 6px; line-height: 1.4; }
+    .card-meta { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; color: #666; }
+    .card-meta span { display: flex; align-items: center; gap: 2px; }
+
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+    .tag-open { background: #e8f5e9; color: #2e7d32; }
+    .tag-soon { background: #fff3e0; color: #e65100; }
+    .tag-closed { background: #fce4ec; color: #c62828; }
+
+    .card-right {
+      display: flex; flex-direction: column;
+      align-items: flex-end; justify-content: space-between;
+      gap: 8px; min-width: 80px;
+    }
+    .link-btn {
+      display: inline-block; padding: 5px 14px;
+      background: #1a3a6b; color: white;
+      border-radius: 6px; font-size: 12px;
+      text-decoration: none; white-space: nowrap;
+    }
+    .link-btn:hover { background: #0e2a55; }
+
+    .d-day { font-size: 12px; font-weight: 700; color: white; padding: 2px 9px; border-radius: 10px; white-space: nowrap; }
+    .d-near { background: #e53935; }
+    .d-far  { background: #1976d2; }
+    .d-done { background: #9e9e9e; }
+
+    .loading, .empty, .error { text-align: center; padding: 60px 20px; color: #888; font-size: 14px; }
+    .spinner { width: 32px; height: 32px; border: 3px solid #e0e5ec; border-top-color: #1a3a6b; border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 14px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .error { color: #c62828; }
+    .upload-done-btn {
+      padding: 3px 9px;
+      border-radius: 5px;
+      border: 1px solid #ccd3dd;
+      background: white;
+      color: #888;
+      font-size: 11px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .upload-done-btn.done {
+      background: #e8f5e9;
+      border-color: #a5d6a7;
+      color: #2e7d32;
+      font-weight: 600;
+    }
+    .upload-done-btn:hover:not(.done) { background: #f5f5f5; }
+
+    .retry-btn { margin-top: 14px; padding: 8px 22px; border: 1px solid #1a3a6b; background: white; color: #1a3a6b; border-radius: 6px; font-size: 13px; cursor: pointer; }
+  </style>
+</head>
+<body>
+
+<!-- 날짜 선택 최상단 -->
+<header>
+  <h1>🏛 공모 공고 현황</h1>
+  <div style="display:flex;align-items:center;gap:10px;">
+    <span class="date-badge" id="today-label"></span>
+    <input type="date" id="date-picker" style="font-size:13px;padding:4px 10px;border:1px solid rgba(255,255,255,0.4);border-radius:6px;background:rgba(255,255,255,0.15);color:white;cursor:pointer;color-scheme:dark;">
+  </div>
+</header>
+
+<!-- 탭 컨트롤 (모든 섹션 공통) -->
+<div class="controls">
+  <button class="tab-btn active" data-filter="today">날짜별 공고</button>
+  <button class="tab-btn" data-filter="all">진행중 전체</button>
+</div>
+
+<!-- 세움터 섹션 -->
+<div class="section-header" style="background:#1a3a6b;">
+  <span class="section-title">🏛 세움터 설계공모</span>
+  <div class="section-actions">
+    <button class="section-refresh-btn" id="refresh-btn">↻ 새로고침</button>
+    <a class="site-link-btn" href="https://www.eais.go.kr/moct/awp/aia01/AWPAIA01L01" target="_blank">바로가기</a>
+  </div>
+</div>
+<div class="summary" id="summary"></div>
+<div class="container" id="container">
+  <div class="loading"><div class="spinner"></div>불러오는 중...</div>
+</div>
+
+<!-- 나라장터 섹션 -->
+<div style="border-top:2px solid #e0e5ec;">
+  <div class="section-header" style="background:#154360;">
+    <span class="section-title">📋 나라장터 설계공모</span>
+    <div class="section-actions">
+      <button class="section-refresh-btn" id="g2b-refresh">↻ 새로고침</button>
+      <a class="site-link-btn" href="https://www.g2b.go.kr" target="_blank">바로가기</a>
+    </div>
+  </div>
+  <div id="g2b-summary" style="padding:9px 24px;font-size:13px;color:#666;background:white;border-bottom:1px solid #e8edf3;min-height:34px;"></div>
+  <div id="g2b-container" class="container">
+    <div class="loading"><div class="spinner"></div>불러오는 중...</div>
+  </div>
+</div>
+
+<!-- 건축허브 섹션 -->
+<div style="border-top:2px solid #e0e5ec;">
+  <div class="section-header" style="background:#2e5d3b;">
+    <span class="section-title">🏗 건축허브 설계공모</span>
+    <div class="section-actions">
+      <button class="section-refresh-btn" id="hub-refresh">↻ 새로고침</button>
+      <a class="site-link-btn" href="https://www.hub.go.kr/portal/dps/dsr/idx-dsr-selectDesignPbpPbancList.do?intYn=N" target="_blank">바로가기</a>
+    </div>
+  </div>
+  <div id="hub-summary" style="padding:9px 24px;font-size:13px;color:#666;background:white;border-bottom:1px solid #e8edf3;min-height:34px;"></div>
+  <div id="hub-container" class="container">
+    <div class="loading"><div class="spinner"></div>불러오는 중...</div>
+  </div>
+</div>
+
+<!-- 서울시 섹션 -->
+<div style="border-top:2px solid #e0e5ec;">
+  <div class="section-header" style="background:#6d2e6d;">
+    <span class="section-title">🏙 서울시 설계공모</span>
+    <div class="section-actions">
+      <button class="section-refresh-btn" id="seoul-refresh">↻ 새로고침</button>
+      <a class="site-link-btn" href="https://project.seoul.go.kr/view/viewListCptt.do" target="_blank">바로가기</a>
+    </div>
+  </div>
+  <div id="seoul-summary" style="padding:9px 24px;font-size:13px;color:#666;background:white;border-bottom:1px solid #e8edf3;min-height:34px;"></div>
+  <div id="seoul-container" class="container">
+    <div class="loading"><div class="spinner"></div>불러오는 중...</div>
+  </div>
+</div>
+
+<script src="popup.js"></script>
+</body>
+</html>

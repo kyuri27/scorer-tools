@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>세움터 오늘 공고</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+      background: #f4f6f9;
+      color: #333;
+      width: 700px;
+      min-height: 120px;
+    }
+
+    header {
+      background: #1a3a6b;
+      color: white;
+      padding: 13px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header h1 { font-size: 14px; font-weight: 700; }
+    .date-badge {
+      background: rgba(255,255,255,0.2);
+      border-radius: 20px;
+      padding: 3px 11px;
+      font-size: 12px;
+    }
+
+    .controls {
+      background: white;
+      padding: 9px 14px;
+      border-bottom: 1px solid #e0e5ec;
+      display: flex;
+      gap: 7px;
+      align-items: center;
+    }
+    .tab-btn {
+      padding: 4px 13px;
+      border-radius: 20px;
+      border: 1px solid #ccd3dd;
+      background: white;
+      font-size: 12px;
+      cursor: pointer;
+      color: #555;
+    }
+    .tab-btn.active { background: #1a3a6b; color: white; border-color: #1a3a6b; }
+    .tab-btn:hover:not(.active) { background: #f0f3f8; }
+
+    .refresh-btn {
+      margin-left: auto;
+      padding: 4px 11px;
+      border-radius: 20px;
+      border: 1px solid #1a3a6b;
+      background: white;
+      color: #1a3a6b;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .refresh-btn:hover { background: #f0f3f8; }
+
+    .summary {
+      padding: 7px 14px;
+      font-size: 12px;
+      color: #666;
+      background: white;
+      border-bottom: 1px solid #e8edf3;
+      min-height: 30px;
+    }
+    .summary strong { color: #1a3a6b; }
+
+    .container { padding: 8px 12px 14px; }
+
+    .card {
+      background: white;
+      border-radius: 8px;
+      border: 1px solid #e0e5ec;
+      margin-bottom: 7px;
+      padding: 11px 13px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+    }
+    .card:hover { box-shadow: 0 2px 8px rgba(0,0,0,0.07); }
+
+    .card-no { font-size: 10px; color: #aaa; margin-bottom: 3px; }
+    .card-title {
+      font-size: 13px; font-weight: 600; color: #1a2a4a;
+      margin-bottom: 5px; line-height: 1.4;
+    }
+    .card-meta {
+      display: flex; flex-wrap: wrap; gap: 6px;
+      font-size: 11px; color: #666;
+    }
+    .card-meta span { display: flex; align-items: center; gap: 2px; }
+
+    .tag {
+      display: inline-block;
+      padding: 1px 7px; border-radius: 10px;
+      font-size: 10px; font-weight: 600;
+    }
+    .tag-open { background: #e8f5e9; color: #2e7d32; }
+    .tag-soon { background: #fff3e0; color: #e65100; }
+    .tag-closed { background: #fce4ec; color: #c62828; }
+
+    .card-right {
+      display: flex; flex-direction: column;
+      align-items: flex-end; justify-content: space-between;
+      gap: 6px; min-width: 68px;
+    }
+    .link-btn {
+      display: inline-block;
+      padding: 4px 10px;
+      background: #1a3a6b; color: white;
+      border-radius: 5px; font-size: 11px;
+      text-decoration: none; white-space: nowrap;
+      cursor: pointer; border: none;
+    }
+    .link-btn:hover { background: #0e2a55; }
+
+    .d-day {
+      font-size: 11px; font-weight: 700;
+      color: white; padding: 2px 7px;
+      border-radius: 10px; white-space: nowrap;
+    }
+    .d-near { background: #e53935; }
+    .d-far  { background: #1976d2; }
+    .d-done { background: #9e9e9e; }
+
+    .loading, .empty, .error {
+      text-align: center; padding: 36px 20px;
+      color: #888; font-size: 13px;
+    }
+    .spinner {
+      width: 26px; height: 26px;
+      border: 3px solid #e0e5ec;
+      border-top-color: #1a3a6b;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 10px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .error { color: #c62828; }
+
+    .error-help {
+      margin-top: 10px;
+      font-size: 11px;
+      color: #888;
+      line-height: 1.6;
+    }
+    .error-help a { color: #1a3a6b; }
+
+    .retry-btn {
+      margin-top: 12px;
+      padding: 6px 18px;
+      border: 1px solid #1a3a6b;
+      background: white; color: #1a3a6b;
+      border-radius: 6px; font-size: 12px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>🏛 세움터 공모 공고 현황</h1>
+  <span class="date-badge" id="today-label"></span>
+</header>
+
+<div class="controls">
+  <button class="tab-btn active" data-filter="today">날짜별 공고</button>
+  <button class="tab-btn" data-filter="all">진행중 전체</button>
+  <input type="date" id="date-picker" style="margin-left:4px;font-size:12px;padding:3px 7px;border:1px solid #ccd3dd;border-radius:6px;color:#333;cursor:pointer;">
+  <button class="refresh-btn" id="refresh-btn">↻ 새로고침</button>
+</div>
+
+<div class="summary" id="summary"></div>
+<div class="container" id="container">
+  <div class="loading"><div class="spinner"></div>불러오는 중...</div>
+</div>
+
+<script src="popup.js"></script>
+</body>
+</html>

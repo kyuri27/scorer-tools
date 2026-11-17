@@ -63,11 +63,11 @@ function extractData() {
       const posIdx  = headers.findIndex(h => h.includes('직급') || h.includes('직위'));
       const qualIdx = headers.findIndex(h => h.includes('자격'));
 
-      const dataRows = Array.from(tbody.querySelectorAll('tr'));
+      const dataRows = Array.from(tbody.children).filter(el => el.tagName === 'TR');
       const grid = [];
       dataRows.forEach((row, ri) => {
         if (!grid[ri]) grid[ri] = [];
-        const cells = row.querySelectorAll('td');
+        const cells = Array.from(row.cells); // 직접 자식 셀만 (중첩 테이블 제외)
         let ci = 0, cellIdx = 0;
         while (cellIdx < cells.length) {
           while (grid[ri][ci] !== undefined) ci++;
@@ -88,14 +88,22 @@ function extractData() {
 
       grid.forEach(row => {
         if (!row || row.length < 2) return;
-        const name = nameIdx >= 0 ? (row[nameIdx] || '').trim() : '';
-        if (!name || !/^[가-힣]{2,4}$/.test(name)) return;
+        let nameVal = nameIdx >= 0 ? (row[nameIdx] || '') : '';
+        let orgVal  = orgIdx  >= 0 ? (row[orgIdx]  || '') : '';
+        let name = nameVal.replace(/\s/g, '');
+        const isName = s => /^[가-힣]{2,5}$/.test(s);
+        // 성명·소속 칸이 뒤바뀐 행 보정 (외부 첫 행 등 HTML 순서 불일치)
+        if (!isName(name) && isName(orgVal.replace(/\s/g, ''))) {
+          [nameVal, orgVal] = [orgVal, nameVal];
+          name = nameVal.replace(/\s/g, '');
+        }
+        if (!isName(name)) return;
         if (seenNames.has(name)) return;
         seenNames.add(name);
         judges.push({
           type: typeIdx >= 0 ? (row[typeIdx] || '').trim() : '',
           name,
-          org:  orgIdx  >= 0 ? (row[orgIdx]  || '').trim() : '',
+          org:  orgVal.trim(),
           pos:  posIdx  >= 0 ? (row[posIdx]  || '').trim() : '',
           qual: qualIdx >= 0 ? (row[qualIdx] || '').trim() : '',
         });
@@ -145,14 +153,21 @@ function extractData() {
 
       grid.forEach(row => {
         if (!row || row.length < 2) return;
-        const name = (row[nameIdx] || '').trim();
-        if (!name || !/^[가-힣]{2,4}$/.test(name)) return;
+        let nameVal = nameIdx >= 0 ? (row[nameIdx] || '') : '';
+        let orgVal  = orgIdx  >= 0 ? (row[orgIdx]  || '') : '';
+        let name = nameVal.replace(/\s/g, '');
+        const isName = s => /^[가-힣]{2,5}$/.test(s);
+        if (!isName(name) && isName(orgVal.replace(/\s/g, ''))) {
+          [nameVal, orgVal] = [orgVal, nameVal];
+          name = nameVal.replace(/\s/g, '');
+        }
+        if (!isName(name)) return;
         if (seenNames.has(name)) return;
         seenNames.add(name);
         judges.push({
           type: typeIdx >= 0 ? (row[typeIdx] || '').trim() : '',
           name,
-          org:  orgIdx  >= 0 ? (row[orgIdx]  || '').trim() : '',
+          org:  orgVal.trim(),
           pos:  posIdx  >= 0 ? (row[posIdx]  || '').trim() : '',
           qual: qualIdx >= 0 ? (row[qualIdx] || '').trim() : '',
         });
@@ -291,8 +306,7 @@ function extractData() {
   const goBtn = Array.from(document.querySelectorAll('button, a')).find(el => {
     if (el.hasAttribute('data-seumter-judge')) return false;
     const text = el.textContent.replace(/\s+/g, '');
-    // 세 단어 모두 포함해야 함 (오탐 방지)
-    return text.includes('심사결과') && text.includes('공고') && text.includes('바로가기');
+    return text.includes('바로가기') && (text.includes('심사결과') || text.includes('공고'));
   });
   if (goBtn) goBtn.setAttribute('data-seumter-result-notice', '1');
   result['심사결과공고_링크'] = '';

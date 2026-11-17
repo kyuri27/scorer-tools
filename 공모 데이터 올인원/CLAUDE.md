@@ -34,7 +34,7 @@ HTML 정리도구(`공모결과정리도구.html`)와 연동해 동작하며, �
 
 - 포트 8765로 `main.py`에 POST 요청
 - 버튼 클릭 → `_trigger_queue`에 적재 → 자동 모드 1 또는 6 실행
-- `result_url` 필드: `input[name='entry_data_url']`에 입력됨
+- `result_url` 필드: 입상작 목록 페이지(`/admin/entry/{id}`) 상단 폼의 `input[name='entry_data_url']`에 입력 후 저장 (`_set_result_url`)
 
 ## 실행 방법
 

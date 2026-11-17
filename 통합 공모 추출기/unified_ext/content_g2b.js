@@ -53,7 +53,9 @@ function extractData() {
     const captions = Array.from(document.querySelectorAll('caption'));
     for (const cap of captions) {
       const t = cap.textContent.trim();
-      if (t.includes('건축설계') || t.includes('용역') || t.includes('공모')) {
+      // 접근성용 표 설명 캡션 제외 (예: "...여부, ...를 나타낸 표")
+      if (t.includes('나타낸 표') || t.includes('나타내는 표') || t.includes('여부') || (t.match(/,/g) || []).length >= 2) continue;
+      if (t.length <= 60 && (t.includes('건축설계') || t.includes('용역') || t.includes('공모'))) {
         result['공고명'] = t;
         break;
       }
