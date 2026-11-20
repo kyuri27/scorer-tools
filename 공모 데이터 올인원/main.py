@@ -1068,6 +1068,7 @@ def _search_org_and_select(page, search_term, original_name) -> bool:
             text_n = normalize(text)
             key = (text_n == target_n,
                    affiliation_similarity(original_name, text),
+                   text_n.endswith(target_n),   # suffix 일치: '경상북도 포항시' > '포항시 산림조합'
                    -abs(len(text_n) - len(target_n)))
             if best_key is None or key > best_key:
                 best_key, best_idx = key, idx
