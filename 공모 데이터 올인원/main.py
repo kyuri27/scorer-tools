@@ -1044,7 +1044,9 @@ def _search_org_and_select(page, search_term, original_name) -> bool:
     sb.wait_for(state="visible", timeout=5000)
     sb.click()
     sb.fill("")
+    page.wait_for_timeout(400)   # DataTable이 clear 처리 후 안정화 대기
     sb.fill(search_term)
+    page.wait_for_timeout(500)   # DataTable 디바운스(~400ms) 후 필터 완료 대기
     _wait_for_org_table(page)
 
     all_rows = _collect_all_table_rows(page)
